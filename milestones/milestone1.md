@@ -1,9 +1,9 @@
 # <Team Name>
 
 ## Members
-- Name <name@uchicago.edu>
-- Name <name@uchicago.edu>
-- Name <name@uchicago.edu>
+- Ahmed Lodhi <name@uchicago.edu>
+- Faizan Imran <name@uchicago.edu>
+- Rodrigo Chaves <rchaves@uchicago.edu>
 
 ## Proposal
 
