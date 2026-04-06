@@ -19,9 +19,12 @@ print(f"Label distribution:\n{df['label'].value_counts()}")
 print(f"Label proportions:\n{df['label'].value_counts(normalize=True).round(3)}")
 
 # ── Feature engineering ───────────────────────────────────────────────────────
+# Only use property characteristics — NOT sale price or assessed value
+# to avoid data leakage
+
 df["BOROUGH"]           = pd.to_numeric(df["BOROUGH"], errors="coerce")
-df["GROSS SQUARE FEET"] = pd.to_numeric(df["GROSS SQUARE FEET"], errors="coerce")
 df["GROSS_SQFT"]        = pd.to_numeric(df["GROSS_SQFT"], errors="coerce")
+df["GROSS SQUARE FEET"] = pd.to_numeric(df["GROSS SQUARE FEET"], errors="coerce")
 df["LAND_AREA"]         = pd.to_numeric(df["LAND_AREA"], errors="coerce")
 df["YRBUILT"]           = pd.to_numeric(df["YRBUILT"], errors="coerce")
 df["NUM_BLDGS"]         = pd.to_numeric(df["NUM_BLDGS"], errors="coerce")
@@ -30,62 +33,50 @@ df["UNITS"]             = pd.to_numeric(df["UNITS"], errors="coerce")
 df["LOT_FRT"]           = pd.to_numeric(df["LOT_FRT"], errors="coerce")
 df["LOT_DEP"]           = pd.to_numeric(df["LOT_DEP"], errors="coerce")
 
-# Building age
+# Building age at time of sale
 df["BUILDING_AGE"] = (df["SALE_YEAR"] - df["YRBUILT"]).clip(lower=0, upper=200)
 
-# Price per sqft — use sales sqft first, fall back to assessment sqft
+# Property size — use sales sqft first, fall back to assessment sqft
 df["SQFT"] = df["GROSS SQUARE FEET"].fillna(df["GROSS_SQFT"])
-df["PRICE_PER_SQFT"] = np.where(
-    df["SQFT"] > 0,
-    df["SALE PRICE"] / df["SQFT"],
-    np.nan
-)
 
-# Assessed value per sqft
-df["ASSESSED_PER_SQFT"] = np.where(
-    df["GROSS_SQFT"] > 0,
-    df["FINACTTOT_per_unit"] / df["GROSS_SQFT"],
-    np.nan
-)
-
-# Log transforms
-df["LOG_SALE_PRICE"] = np.log1p(df["SALE PRICE"])
-df["LOG_FINACTTOT"]  = np.log1p(df["FINACTTOT"])
+# Log transforms for skewed size variables
 df["LOG_GROSS_SQFT"] = np.log1p(df["SQFT"])
 df["LOG_LAND_AREA"]  = np.log1p(df["LAND_AREA"])
 
 # Encode categoricals
-df["BLDG_CLASS_CODE"] = LabelEncoder().fit_transform(df["BLDG_CLASS"].fillna("Unknown"))
-df["TAX_CLASS_CODE"]  = LabelEncoder().fit_transform(df["TAX CLASS AT TIME OF SALE"].fillna("Unknown").astype(str))
-df["ZONING_CODE"]     = LabelEncoder().fit_transform(df["ZONING"].fillna("Unknown"))
+df["BLDG_CLASS_CODE"]    = LabelEncoder().fit_transform(df["BLDG_CLASS"].fillna("Unknown"))
+df["TAX_CLASS_CODE"]     = LabelEncoder().fit_transform(df["TAX CLASS AT TIME OF SALE"].fillna("Unknown").astype(str))
+df["ZONING_CODE"]        = LabelEncoder().fit_transform(df["ZONING"].fillna("Unknown"))
+df["NEIGHBORHOOD_CODE"]  = LabelEncoder().fit_transform(df["NEIGHBORHOOD"].fillna("Unknown"))
 
-# ── Features ──────────────────────────────────────────────────────────────────
+# ── Features — NO sale price, NO assessed value, NO derived ratios ────────────
+# These are pure property characteristics that should be known
+# BEFORE the sale happens — no leakage
 FEATURES = [
-    "BOROUGH",
-    "SALE_YEAR",           # new — captures market trends across years
-    "LOG_SALE_PRICE",
-    "LOG_FINACTTOT",
-    "LOG_GROSS_SQFT",
-    "LOG_LAND_AREA",
-    "BUILDING_AGE",
-    "PRICE_PER_SQFT",
-    "ASSESSED_PER_SQFT",
-    "NUM_BLDGS",
-    "BLD_STORY",
-    "UNITS",
-    "LOT_FRT",
-    "LOT_DEP",
-    "BLDG_CLASS_CODE",
-    "TAX_CLASS_CODE",
-    "ZONING_CODE",
+    "BOROUGH",           # location
+    "SALE_YEAR",         # market year
+    "BUILDING_AGE",      # age of building
+    "LOG_GROSS_SQFT",    # building size
+    "LOG_LAND_AREA",     # lot size
+    "NUM_BLDGS",         # number of buildings on lot
+    "BLD_STORY",         # number of floors
+    "UNITS",             # number of units
+    "LOT_FRT",           # lot frontage
+    "LOT_DEP",           # lot depth
+    "BLDG_CLASS_CODE",   # building classification
+    "TAX_CLASS_CODE",    # tax class
+    "ZONING_CODE",       # zoning district
+    "NEIGHBORHOOD_CODE", # neighborhood
 ]
+
+print(f"\nFeatures used (no leakage): {FEATURES}")
 
 # ── Prepare X and y ───────────────────────────────────────────────────────────
 df_model = df[FEATURES + ["label"]].copy()
 for col in FEATURES:
     df_model[col] = pd.to_numeric(df_model[col], errors="coerce")
 
-# Impute missing values with median (keeps more rows vs dropna)
+# Impute missing values with median
 null_counts = df_model[FEATURES].isnull().sum()
 print(f"\nNull counts before imputation:")
 print(null_counts[null_counts > 0])
@@ -147,9 +138,9 @@ for name, model in models.items():
     results.append({"Model": name, "Accuracy": round(acc, 4), "F1 Score": round(f1, 4)})
 
 # ── Feature importance (Random Forest) ───────────────────────────────────────
-rf_model = [m for n, m in models.items() if n == "Random Forest"][0]
+rf_model = models["Random Forest"]
 feat_imp = pd.DataFrame({
-    "Feature":   FEATURES,
+    "Feature":    FEATURES,
     "Importance": rf_model.feature_importances_
 }).sort_values("Importance", ascending=False)
 
@@ -164,6 +155,11 @@ print("MODEL COMPARISON SUMMARY")
 print('='*50)
 results_df = pd.DataFrame(results).sort_values("Accuracy", ascending=False)
 print(results_df.to_string(index=False))
+
+# Baseline accuracy (always predict most common class)
+baseline = y.value_counts(normalize=True).max()
+print(f"\nBaseline accuracy (majority class): {baseline:.4f}")
+print("Note: A good model should beat this baseline significantly.")
 
 # ── Save ──────────────────────────────────────────────────────────────────────
 results_df.to_csv(os.path.join(data_path, "model_results.csv"), index=False)
