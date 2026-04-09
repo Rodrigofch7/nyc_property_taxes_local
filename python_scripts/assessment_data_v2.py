@@ -42,6 +42,8 @@ COL_NAMES = [
 COLS_NEEDED = [
     "BBL", "BORO", "BLOCK", "LOT", "BLDG_CLASS",
     "FINACTTOT", "FINACTLAND", "FINMKTTOT",
+    "PYACTTOT",    # ← add this
+    "PYACTLAND",   # ← add this
     "GROSS_SQFT", "LAND_AREA", "NUM_BLDGS",
     "YRBUILT", "BLD_STORY", "UNITS", "COOP_APTS",
     "LOT_FRT", "LOT_DEP", "LOT_IRREG",

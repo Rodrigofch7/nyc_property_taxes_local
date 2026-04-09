@@ -32,6 +32,12 @@ df["BLD_STORY"]         = pd.to_numeric(df["BLD_STORY"], errors="coerce")
 df["UNITS"]             = pd.to_numeric(df["UNITS"], errors="coerce")
 df["LOT_FRT"]           = pd.to_numeric(df["LOT_FRT"], errors="coerce")
 df["LOT_DEP"]           = pd.to_numeric(df["LOT_DEP"], errors="coerce")
+# Year-over-year change in assessment
+df["ASSESS_CHANGE"] = df["FINACTTOT"] - pd.to_numeric(df["PYACTTOT"], errors="coerce")
+df["ASSESS_CHANGE_PCT"] = df["ASSESS_CHANGE"] / pd.to_numeric(df["PYACTTOT"], errors="coerce")
+
+# Is assessment growing faster or slower than typical?
+df["LOG_PYACTTOT"] = np.log1p(pd.to_numeric(df["PYACTTOT"], errors="coerce"))
 
 # Building age at time of sale
 df["BUILDING_AGE"] = (df["SALE_YEAR"] - df["YRBUILT"]).clip(lower=0, upper=200)
