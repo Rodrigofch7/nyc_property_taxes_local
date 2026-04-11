@@ -43,7 +43,7 @@ df["ratio_vs_target"] = df["assessment_ratio"] / df["target_ratio"]
 # overvalued:    assessed at more than 130% of target → paying too much tax
 df["label"] = pd.cut(
     df["ratio_vs_target"],
-    bins=[0, 0.70, 1.30, float("inf")],
+    bins=[0, 0.90, 1.10, float("inf")],
     labels=["undervalued", "fairly_valued", "overvalued"]
 )
 df = df.dropna(subset=["label", "assessment_ratio"])
