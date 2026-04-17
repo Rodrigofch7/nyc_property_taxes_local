@@ -19,7 +19,9 @@ print(f"Loaded shape: {df.shape}")
 # ── Convert key columns to numeric ───────────────────────────────────────────
 for col in ["BOROUGH", "GROSS_SQFT", "GROSS SQUARE FEET", "LAND_AREA",
             "YRBUILT", "NUM_BLDGS", "BLD_STORY", "UNITS", "LOT_FRT",
-            "LOT_DEP", "FINACTTOT", "PYACTTOT", "PYACTLAND", "FINACTLAND"]:
+            "LOT_DEP", "FINACTTOT", "PYACTTOT", "PYACTLAND", "FINACTLAND", 
+            'FINACTTOT_FY2020', 'FINACTTOT_FY2021',
+            'FINACTTOT_FY2022', 'FINACTTOT_FY2023']:
     if col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
@@ -91,7 +93,8 @@ FEATURES = [
     "BLDG_CLASS_CODE", "TAX_CLASS_CODE", "ZONING_CODE",
     "LOG_PYACTTOT", "ASSESS_CHANGE_PCT", "ASSESS_GREW", "ASSESS_AT_CAP",
     "LAND_TO_TOTAL", "LOG_NEIGHBORHOOD_MEDIAN", "NEIGHBORHOOD_SALE_COUNT",
-    "PRICE_VS_NEIGHBORHOOD", "PRICE_VS_ZIP", "ZIP_SALE_COUNT",
+    "PRICE_VS_NEIGHBORHOOD", "PRICE_VS_ZIP", "ZIP_SALE_COUNT", 'FINACTTOT_FY2020', 'FINACTTOT_FY2021',
+    'FINACTTOT_FY2022', 'FINACTTOT_FY2023'
 ]
 FEATURES = [f for f in FEATURES if f in df.columns]
 print(f"\nUsing {len(FEATURES)} features")
@@ -135,41 +138,6 @@ def evaluate(name, model, X_tr, X_te):
 
 results = []
 best_estimators = {}
-
-# ── 1. Logistic Regression ────────────────────────────────────────────────────
-print(f"\n{'='*60}\nTuning: Logistic Regression")
-search = GridSearchCV(
-    LogisticRegression(max_iter=1000, random_state=42),
-    param_grid={"C": [0.01, 0.1, 1, 10], "penalty": ["l1", "l2"], "solver": ["saga"]},
-    cv=cv, scoring="f1_weighted", n_jobs=-1, verbose=1,
-)
-search.fit(X_train_scaled, y_train)
-print(f"Best params : {search.best_params_}")
-print(f"Best CV F1  : {search.best_score_:.4f}")
-best_estimators["Logistic Regression"] = search.best_estimator_
-acc, f1, cv_mean, cv_std = evaluate("LR", search.best_estimator_, X_train_scaled, X_test_scaled)
-results.append({"Model": "Logistic Regression", "Best CV F1": round(search.best_score_, 4),
-                "Test Accuracy": round(acc, 4), "Test F1": round(f1, 4),
-                "CV F1 Mean": round(cv_mean, 4), "CV F1 Std": round(cv_std, 4),
-                "Best Params": str(search.best_params_)})
-
-# ── 2. Decision Tree ──────────────────────────────────────────────────────────
-print(f"\n{'='*60}\nTuning: Decision Tree")
-search = GridSearchCV(
-    DecisionTreeClassifier(random_state=42),
-    param_grid={"max_depth": [5, 10, 15, 20, None], "min_samples_split": [2, 10, 20],
-                "min_samples_leaf": [1, 5, 10], "criterion": ["gini", "entropy"]},
-    cv=cv, scoring="f1_weighted", n_jobs=-1, verbose=1,
-)
-search.fit(X_train, y_train)
-print(f"Best params : {search.best_params_}")
-print(f"Best CV F1  : {search.best_score_:.4f}")
-best_estimators["Decision Tree"] = search.best_estimator_
-acc, f1, cv_mean, cv_std = evaluate("DT", search.best_estimator_, X_train, X_test)
-results.append({"Model": "Decision Tree", "Best CV F1": round(search.best_score_, 4),
-                "Test Accuracy": round(acc, 4), "Test F1": round(f1, 4),
-                "CV F1 Mean": round(cv_mean, 4), "CV F1 Std": round(cv_std, 4),
-                "Best Params": str(search.best_params_)})
 
 # ── 3. Random Forest  (memory-safe) ──────────────────────────────────────────
 # Three changes from the version that was OOM-killed:
@@ -235,23 +203,6 @@ results.append({"Model": "HistGradientBoosting", "Best CV F1": round(search.best
                 "CV F1 Mean": round(cv_mean, 4), "CV F1 Std": round(cv_std, 4),
                 "Best Params": str(search.best_params_)})
 
-# ── 5. K-Nearest Neighbors ────────────────────────────────────────────────────
-print(f"\n{'='*60}\nTuning: K-Nearest Neighbors")
-search = GridSearchCV(
-    KNeighborsClassifier(),
-    param_grid={"n_neighbors": [5, 10, 20, 40], "weights": ["uniform", "distance"],
-                "metric": ["euclidean", "manhattan"]},
-    cv=cv, scoring="f1_weighted", n_jobs=-1, verbose=1,
-)
-search.fit(X_train_scaled, y_train)
-print(f"Best params : {search.best_params_}")
-print(f"Best CV F1  : {search.best_score_:.4f}")
-best_estimators["KNN"] = search.best_estimator_
-acc, f1, cv_mean, cv_std = evaluate("KNN", search.best_estimator_, X_train_scaled, X_test_scaled)
-results.append({"Model": "K-Nearest Neighbors", "Best CV F1": round(search.best_score_, 4),
-                "Test Accuracy": round(acc, 4), "Test F1": round(f1, 4),
-                "CV F1 Mean": round(cv_mean, 4), "CV F1 Std": round(cv_std, 4),
-                "Best Params": str(search.best_params_)})
 
 # ── Feature importance from best Random Forest ────────────────────────────────
 rf_best = best_estimators["Random Forest"]
