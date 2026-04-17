@@ -10,7 +10,7 @@ print(f"Sales shape: {df_sales.shape}")
 print(f"Assessment shape: {df_assess.shape}")
 
 # ── Filter sales to 2022-2024 ─────────────────────────────────────────────────
-df_sales = df_sales[df_sales["SALE_YEAR"].isin([2022, 2023, 2024])].copy()
+df_sales = df_sales[df_sales["SALE_YEAR"].isin([2020, 2021, 2022, 2023, 2024])].copy()
 print(f"Sales 2022-2024 shape: {df_sales.shape}")
 print(f"Sales by year:\n{df_sales['SALE_YEAR'].value_counts().sort_index()}")
 
@@ -88,7 +88,7 @@ print(df_merged.groupby("SALE_YEAR")["label"].value_counts().unstack())
 output_path = "/home/rodrigofrancachaves/project-nyc_property_taxes/data"
 os.makedirs(output_path, exist_ok=True)
 
-out_file = os.path.join(output_path, "merged_2022_2024.parquet")
+out_file = os.path.join(output_path, "merged_2020_2024.parquet")
 df_merged.to_parquet(out_file, index=False)
 print(f"\nSaved to: {out_file}")
 print(f"Final shape: {df_merged.shape}")

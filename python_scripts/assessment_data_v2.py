@@ -127,24 +127,24 @@ def read_in_chunks(filepath, fy, tax_year, chunksize=100_000):
 
 
 if __name__ == "__main__":
-    out_file = os.path.join(OUTPUT_PATH, "assessment_FY2024.parquet")
+    out_file = os.path.join(OUTPUT_PATH, "assessment_FY2023.parquet")
 
     if os.path.exists(out_file):
-        print("FY2024 already processed — skipping")
+        print("FY2023 already processed — skipping")
     else:
-        print("Processing FY2024 (tax year 2023/24)...")
+        print("Processing FY2023 (tax year 2022/23)...")
 
+        # Use the specific naming convention for FY23 noted in README.md
         tc1 = read_in_chunks(
-            f"{DATA_PATH}/fy24_tc1/fy24_tc1.txt", "FY2024", "2023/24"
+            f"{DATA_PATH}/final_tc1_2023/final_tc1_2023.txt", "FY2023", "2022/23"
         )
         tc234 = read_in_chunks(
-            f"{DATA_PATH}/fy24_tc234/fy24_tc234.txt", "FY2024", "2023/24"
+            f"{DATA_PATH}/final_tc234_2023/final_tc234_2023.txt", "FY2023", "2022/23"
         )
 
         combined = pd.concat([tc1, tc234], ignore_index=True).drop_duplicates()
-        print(f"\nFY2024 total: {combined.shape[0]:,} rows")
-        print(f"\nKey stats:\n{combined[['FINACTTOT', 'GROSS_SQFT', 'YRBUILT']].describe()}")
-
+        
+        print(f"\nFY2023 total: {combined.shape[0]:,} rows")
         combined.to_parquet(out_file, index=False)
         print(f"\nSaved to {out_file}")
 

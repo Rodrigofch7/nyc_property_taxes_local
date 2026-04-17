@@ -13,7 +13,7 @@ warnings.filterwarnings("ignore")
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 data_path = "/home/rodrigofrancachaves/project-nyc_property_taxes/data"
-df = pd.read_parquet(os.path.join(data_path, "merged_2022_2024.parquet"))
+df = pd.read_parquet(os.path.join(data_path, "merged_2020_2024.parquet"))
 print(f"Loaded shape: {df.shape}")
 
 # ── Convert key columns to numeric ───────────────────────────────────────────
