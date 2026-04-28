@@ -15,14 +15,18 @@ df_final = df_2024.copy()
 for y in years:
     df_prev = pd.read_parquet(
         f"{BASE_PATH}/assessment_FY{y}.parquet",
-        columns=["BBL", "FINACTTOT"]   # only what we need
+        columns=["BBL", "FINACTTOT", "FINACTLAND", "FINMKTTOT"]   # only what we need
     )
 
     # ensure unique BBL (important)
     df_prev = df_prev.drop_duplicates(subset="BBL")
 
-    # rename column
-    df_prev = df_prev.rename(columns={"FINACTTOT": f"FINACTTOT_FY{y}"})
+    # rename columns
+    df_prev = df_prev.rename(columns={
+        "FINACTTOT": f"FINACTTOT_FY{y}",
+        "FINACTLAND": f"FINACTLAND_FY{y}",
+        "FINMKTTOT": f"FINMKTTOT_FY{y}"
+    })
 
     # merge into main dataset
     df_final = df_final.merge(df_prev, on="BBL", how="left")
