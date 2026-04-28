@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import gc
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 DATA_PATH   = "/mnt/c/Users/rodri/Documents/NYC Datasets"
 OUTPUT_PATH = "/mnt/c/Users/rodri/Documents/NYC Datasets/assessment_interim"
@@ -42,8 +43,7 @@ COL_NAMES = [
 COLS_NEEDED = [
     "BBL", "BORO", "BLOCK", "LOT", "BLDG_CLASS",
     "FINACTTOT", "FINACTLAND", "FINMKTTOT",
-    "PYACTTOT",    # ← add this
-    "PYACTLAND",   # ← add this
+    "PYACTTOT", "PYACTLAND",
     "GROSS_SQFT", "LAND_AREA", "NUM_BLDGS",
     "YRBUILT", "BLD_STORY", "UNITS", "COOP_APTS",
     "LOT_FRT", "LOT_DEP", "LOT_IRREG",
@@ -53,10 +53,35 @@ COLS_NEEDED = [
 
 NUM_COLS = [
     "FINACTTOT", "FINACTLAND", "FINMKTTOT", "GROSS_SQFT",
+    "PYACTTOT", "PYACTLAND",
     "LAND_AREA", "NUM_BLDGS", "YRBUILT", "BLD_STORY",
     "UNITS", "COOP_APTS", "LOT_FRT", "LOT_DEP",
     "BORO", "BLOCK", "LOT"
 ]
+
+# ── File mapping ──────────────────────────────────────────────────────────────
+FILE_MAP = {
+    "FY2023": {
+        "tc1":      f"{DATA_PATH}/final_tc1_2023/final_tc1_2023.txt",
+        "tc234":    f"{DATA_PATH}/final_tc234_2023/final_tc234_2023.txt",
+        "tax_year": "2022/23"
+    },
+    "FY2024": {
+        "tc1":      f"{DATA_PATH}/fy24_tc1/fy24_tc1.txt",
+        "tc234":    f"{DATA_PATH}/fy24_tc234/fy24_tc234.txt",
+        "tax_year": "2023/24"
+    },
+    "FY2025": {
+        "tc1":      f"{DATA_PATH}/fy25_tc1/PROPMAST_TC1_T2025_FIN.TXT",
+        "tc234":    f"{DATA_PATH}/fy25_tc234/PROPMAST_TC234_T2025_FIN.TXT",
+        "tax_year": "2024/25"
+    },
+    "FY2026": {
+        "tc1":      f"{DATA_PATH}/fy26_tc1/PROPMAST_TC1_T2026_FIN.TXT",
+        "tc234":    f"{DATA_PATH}/fy26_tc234/PROPMAST_TC234_T2026_FIN.TXT",
+        "tax_year": "2025/26"
+    },
+}
 
 
 def read_in_chunks(filepath, fy, tax_year, chunksize=100_000):
@@ -88,17 +113,13 @@ def read_in_chunks(filepath, fy, tax_year, chunksize=100_000):
     ):
         chunk_num += 1
 
-        # Filter to ordinary real estate only
         chunk = chunk[chunk["RECTYPE"].str.strip() == "1"].copy()
-
         if chunk.empty:
             continue
 
-        # Add metadata
         chunk["FISCAL_YEAR"] = fy
         chunk["TAX_YEAR"]    = tax_year
 
-        # Create BBL
         chunk["BORO"]  = pd.to_numeric(chunk["BORO"],  errors="coerce")
         chunk["BLOCK"] = pd.to_numeric(chunk["BLOCK"], errors="coerce")
         chunk["LOT"]   = pd.to_numeric(chunk["LOT"],   errors="coerce")
@@ -109,11 +130,9 @@ def read_in_chunks(filepath, fy, tax_year, chunksize=100_000):
             chunk["LOT"].astype(int).astype(str).str.zfill(4)
         )
 
-        # Keep only needed columns
         existing = [c for c in COLS_NEEDED if c in chunk.columns]
         chunk = chunk[existing]
 
-        # Convert numeric columns
         for col in NUM_COLS:
             if col in chunk.columns:
                 chunk[col] = pd.to_numeric(chunk[col], errors="coerce")
@@ -127,26 +146,37 @@ def read_in_chunks(filepath, fy, tax_year, chunksize=100_000):
 
 
 if __name__ == "__main__":
-    out_file = os.path.join(OUTPUT_PATH, "assessment_FY2023.parquet")
+    for fy, info in FILE_MAP.items():
+        out_file = os.path.join(OUTPUT_PATH, f"assessment_{fy}.parquet")
 
-    if os.path.exists(out_file):
-        print("FY2023 already processed — skipping")
-    else:
-        print("Processing FY2023 (tax year 2022/23)...")
+        if os.path.exists(out_file):
+            print(f"\n{fy} already processed — skipping")
+            continue
 
-        # Use the specific naming convention for FY23 noted in README.md
-        tc1 = read_in_chunks(
-            f"{DATA_PATH}/final_tc1_2023/final_tc1_2023.txt", "FY2023", "2022/23"
-        )
-        tc234 = read_in_chunks(
-            f"{DATA_PATH}/final_tc234_2023/final_tc234_2023.txt", "FY2023", "2022/23"
-        )
+        print(f"\nProcessing {fy} (tax year {info['tax_year']})...")
+
+        # Check files exist before attempting
+        missing = [k for k in ["tc1", "tc234"] if not os.path.exists(info[k])]
+        if missing:
+            print(f"  WARNING: Missing files for {fy}: {[info[k] for k in missing]}")
+            print(f"  Skipping {fy}")
+            continue
+
+        tc1   = read_in_chunks(info["tc1"],   fy, info["tax_year"])
+        tc234 = read_in_chunks(info["tc234"], fy, info["tax_year"])
 
         combined = pd.concat([tc1, tc234], ignore_index=True).drop_duplicates()
-        
-        print(f"\nFY2023 total: {combined.shape[0]:,} rows")
+        print(f"\n{fy} total: {combined.shape[0]:,} rows")
+
         combined.to_parquet(out_file, index=False)
-        print(f"\nSaved to {out_file}")
+        print(f"Saved to {out_file}")
 
         del tc1, tc234, combined
         gc.collect()
+
+    print("\nAll done!")
+    print("Files saved:")
+    for f in sorted(os.listdir(OUTPUT_PATH)):
+        if f.endswith(".parquet"):
+            size_mb = os.path.getsize(os.path.join(OUTPUT_PATH, f)) / 1e6
+            print(f"  {f} ({size_mb:.1f} MB)")
