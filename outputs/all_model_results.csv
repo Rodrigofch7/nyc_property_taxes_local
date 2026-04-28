@@ -1,6 +1,6 @@
 Model,Test Accuracy,Test F1 Macro,Test F1 Weighted,CV F1 Macro,CV F1 Std,Best Params
-HistGradientBoosting,0.8712,0.8747,0.8708,0.872,0.0009,"{'min_samples_leaf': 20, 'max_iter': 300, 'max_depth': 5, 'learning_rate': 0.2, 'l2_regularization': 0.1}"
-SGD ElasticNet,0.8345,0.8387,0.8344,0.8361,0.0025,"{'alpha': 0.01, 'l1_ratio': 0.15}"
-SGD L2,0.8336,0.8378,0.8332,0.8353,0.0033,{'alpha': 0.01}
-SGD L1,0.8322,0.8367,0.8323,0.8088,0.0352,{'alpha': 0.1}
-Passive Aggressive,0.8147,0.8193,0.8139,0.838,0.0026,{'C': 0.001}
+HistGradientBoosting,0.8741,0.8774,0.8737,0.8744,0.0008,"{'min_samples_leaf': 20, 'max_iter': 300, 'max_depth': 5, 'learning_rate': 0.2, 'l2_regularization': 0.1}"
+SGD ElasticNet,0.8345,0.8387,0.8343,0.8364,0.0033,"{'alpha': 0.01, 'l1_ratio': 0.15}"
+SGD L2,0.834,0.8382,0.8337,0.8361,0.0028,{'alpha': 0.01}
+SGD L1,0.825,0.8292,0.8247,0.8222,0.0109,{'alpha': 0.001}
+Passive Aggressive,0.8005,0.805,0.7986,0.838,0.0026,{'C': 0.001}

@@ -26,11 +26,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from sklearn.model_selection import (
     train_test_split, StratifiedKFold,
-    cross_val_score, GridSearchCV
+    cross_val_score, GridSearchCV, RandomizedSearchCV
 )
 from sklearn.linear_model import SGDClassifier, PassiveAggressiveClassifier
 from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.model_selection import RandomizedSearchCV
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import (
@@ -40,14 +39,12 @@ from sklearn.metrics import (
 import joblib
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-DATA_PATH  = "/home/rodrigofrancachaves/project-nyc_property_taxes/data/processed_labeled_data.parquet"
+DATA_PATH  = "/home/rodrigofrancachaves/project-nyc_property_taxes/data/processed_labeled_data_census.parquet"
 MODEL_DIR  = "/home/rodrigofrancachaves/project-nyc_property_taxes/models"
 OUTPUT_DIR = "/home/rodrigofrancachaves/project-nyc_property_taxes/outputs"
 os.makedirs(MODEL_DIR,  exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 100k for linear models — plenty and RAM safe
-# 300k for HGB — it handles large data efficiently
 LINEAR_SUBSAMPLE = 100_000
 HGB_SUBSAMPLE    = 300_000
 
@@ -68,26 +65,34 @@ def load_data(path):
 def engineer_features(df):
     print("\nEngineering features...")
 
+    # ── Numeric conversions ───────────────────────────────────────────────────
     numeric_cols = (
         ["GROSS_SQFT", "LAND_AREA", "NUM_BLDGS", "YRBUILT",
          "UNITS", "COOP_APTS", "BLD_STORY", "LOT_FRT", "LOT_DEP",
-         "FINACTTOT", "PYACTTOT"] +
+         "FINACTTOT", "PYACTTOT",
+         # census columns
+         "MEDIAN_INCOME", "LOG_MEDIAN_INCOME", "MEDIAN_RENT",
+         "MEDIAN_HOME_VALUE", "PCT_WHITE", "PCT_OWNER_OCCUPIED",
+         "PCT_POVERTY", "PCT_BACHELORS", "TOTAL_POPULATION"] +
         [f"FINACTTOT_FY{y}" for y in [2020, 2021, 2022, 2023, 2024, 2025]]
     )
     for col in numeric_cols:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # ── Property features ─────────────────────────────────────────────────────
     df["BUILDING_AGE"]   = (2026 - df["YRBUILT"]).clip(lower=0, upper=200)
     df["LOG_GROSS_SQFT"] = np.log1p(df["GROSS_SQFT"].fillna(0))
     df["LOG_LAND_AREA"]  = np.log1p(df["LAND_AREA"].fillna(0))
     df["LOG_PYACTTOT"]   = np.log1p(df["PYACTTOT"].fillna(0))
 
+    # ── Historical assessment log transforms ──────────────────────────────────
     historical_value_cols = [c for c in df.columns if "FINACTTOT_FY" in c]
     for col in historical_value_cols:
         df[f"LOG_{col}"] = np.log1p(df[col].fillna(0))
     log_value_cols = [f"LOG_{c}" for c in historical_value_cols if c in df.columns]
 
+    # ── Assessment trend ──────────────────────────────────────────────────────
     fy_available = sorted([c for c in historical_value_cols if c in df.columns])
     if len(fy_available) >= 2:
         df["ASSESS_TREND"] = (
@@ -97,32 +102,59 @@ def engineer_features(df):
     else:
         df["ASSESS_TREND"] = 0.0
 
+    # ── Census log transforms ─────────────────────────────────────────────────
+    df["LOG_MEDIAN_RENT"]       = np.log1p(df["MEDIAN_RENT"].fillna(0))
+    df["LOG_MEDIAN_HOME_VALUE"] = np.log1p(df["MEDIAN_HOME_VALUE"].fillna(0))
+    df["LOG_TOTAL_POPULATION"]  = np.log1p(df["TOTAL_POPULATION"].fillna(0))
+
+    # ── Encode categoricals ───────────────────────────────────────────────────
     categorical_cols = ["BORO", "BLDG_CLASS", "ZIP_CODE", "ZONING"]
     le_dict = {}
     for col in categorical_cols:
         if col in df.columns:
             le = LabelEncoder()
-            df[f"{col}_CODE"] = le.fit_transform(df[col].fillna("Unknown").astype(str))
+            df[f"{col}_CODE"] = le.fit_transform(
+                df[col].fillna("Unknown").astype(str)
+            )
             le_dict[col] = le
     encoded_cat_cols = [f"{c}_CODE" for c in categorical_cols if c in df.columns]
 
+    # ── Historical classification status columns ───────────────────────────────
     historical_status_cols = [
         c for c in df.columns
         if any(str(yr) in c for yr in [2020, 2021, 2022, 2023, 2024, 2025])
         and any(x in c for x in ["overvalued", "undervalued", "fairly_valued"])
     ]
 
+    # ── Census features ───────────────────────────────────────────────────────
+    census_features = [
+        "LOG_MEDIAN_INCOME",        # income level of ZIP area
+        "LOG_MEDIAN_RENT",          # rent level
+        "LOG_MEDIAN_HOME_VALUE",    # home value context
+        "PCT_WHITE",                # racial composition
+        "PCT_OWNER_OCCUPIED",       # owner vs renter
+        "PCT_POVERTY",              # poverty rate
+        "PCT_BACHELORS",            # education level
+        "LOG_TOTAL_POPULATION",     # density proxy
+    ]
+    census_features = [f for f in census_features if f in df.columns]
+
+    # ── Final feature list ────────────────────────────────────────────────────
     features = (
         encoded_cat_cols +
-        ["LOG_GROSS_SQFT", "LOG_LAND_AREA", "NUM_BLDGS",
-         "UNITS", "COOP_APTS", "BLD_STORY",
-         "LOT_FRT", "LOT_DEP", "BUILDING_AGE",
-         "LOG_PYACTTOT", "ASSESS_TREND"] +
+        [
+            "LOG_GROSS_SQFT", "LOG_LAND_AREA", "NUM_BLDGS",
+            "UNITS", "COOP_APTS", "BLD_STORY",
+            "LOT_FRT", "LOT_DEP", "BUILDING_AGE",
+            "LOG_PYACTTOT", "ASSESS_TREND",
+        ] +
         historical_status_cols +
-        log_value_cols
+        log_value_cols +
+        census_features
     )
     features = [f for f in features if f in df.columns]
     print(f"  Total features: {len(features)}")
+    print(f"  Census features included: {census_features}")
     return df, features, le_dict
 
 
@@ -172,10 +204,14 @@ def evaluate(name, model, X_test, y_test, X_train, y_train, subsample_n):
         scoring="f1_macro", n_jobs=-1
     )
     print(f"  CV F1 Macro: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
-    return {"Model": name, "Test Accuracy": round(acc, 4),
-            "Test F1 Macro": round(f1m, 4), "Test F1 Weighted": round(f1w, 4),
-            "CV F1 Macro": round(cv_scores.mean(), 4),
-            "CV F1 Std": round(cv_scores.std(), 4)}, cm
+    return {
+        "Model": name,
+        "Test Accuracy": round(acc, 4),
+        "Test F1 Macro": round(f1m, 4),
+        "Test F1 Weighted": round(f1w, 4),
+        "CV F1 Macro": round(cv_scores.mean(), 4),
+        "CV F1 Std": round(cv_scores.std(), 4)
+    }, cm
 
 
 # ── Plot coefficients ─────────────────────────────────────────────────────────
@@ -193,7 +229,7 @@ def plot_coefficients(model, features, name, output_dir, top_n=20):
         ax.set_title(f"Top {top_n} coefficients\nClass: {cls}", fontsize=12)
         ax.set_xlabel("Coefficient value")
         ax.axvline(0, color="black", linewidth=0.8)
-    plt.suptitle(f"{name} (L2) — Coefficients by Class", fontsize=13)
+    plt.suptitle(f"{name} — Coefficients by Class", fontsize=13)
     plt.tight_layout()
     slug = name.lower().replace(" ", "_")
     out  = os.path.join(output_dir, f"{slug}_coefficients.png")
@@ -262,10 +298,12 @@ if __name__ == "__main__":
     print("Model 1: SGDClassifier — L2 (Ridge)")
     X_sub, y_sub = subsample(X_train_sc, y_train_r, LINEAR_SUBSAMPLE)
     search = GridSearchCV(
-        SGDClassifier(loss="modified_huber", penalty="l2",
-                      class_weight="balanced", max_iter=1000, tol=1e-3,
-                      random_state=42, early_stopping=True,
-                      validation_fraction=0.1, n_iter_no_change=10),
+        SGDClassifier(
+            loss="modified_huber", penalty="l2",
+            class_weight="balanced", max_iter=1000, tol=1e-3,
+            random_state=42, early_stopping=True,
+            validation_fraction=0.1, n_iter_no_change=10
+        ),
         {"alpha": [0.0001, 0.001, 0.01, 0.1]},
         cv=cv5, scoring="f1_macro", n_jobs=1, verbose=1, refit=True
     )
@@ -286,10 +324,12 @@ if __name__ == "__main__":
     print("Model 2: SGDClassifier — L1 (LASSO)")
     X_sub, y_sub = subsample(X_train_sc, y_train_r, LINEAR_SUBSAMPLE)
     search = GridSearchCV(
-        SGDClassifier(loss="modified_huber", penalty="l1",
-                      class_weight="balanced", max_iter=1000, tol=1e-3,
-                      random_state=42, early_stopping=True,
-                      validation_fraction=0.1, n_iter_no_change=10),
+        SGDClassifier(
+            loss="modified_huber", penalty="l1",
+            class_weight="balanced", max_iter=1000, tol=1e-3,
+            random_state=42, early_stopping=True,
+            validation_fraction=0.1, n_iter_no_change=10
+        ),
         {"alpha": [0.0001, 0.001, 0.01, 0.1]},
         cv=cv5, scoring="f1_macro", n_jobs=1, verbose=1, refit=True
     )
@@ -310,12 +350,13 @@ if __name__ == "__main__":
     print("Model 3: SGDClassifier — ElasticNet (L1+L2)")
     X_sub, y_sub = subsample(X_train_sc, y_train_r, LINEAR_SUBSAMPLE)
     search = GridSearchCV(
-        SGDClassifier(loss="modified_huber", penalty="elasticnet",
-                      class_weight="balanced", max_iter=1000, tol=1e-3,
-                      random_state=42, early_stopping=True,
-                      validation_fraction=0.1, n_iter_no_change=10),
-        {"alpha": [0.0001, 0.001, 0.01],
-         "l1_ratio": [0.15, 0.5, 0.85]},
+        SGDClassifier(
+            loss="modified_huber", penalty="elasticnet",
+            class_weight="balanced", max_iter=1000, tol=1e-3,
+            random_state=42, early_stopping=True,
+            validation_fraction=0.1, n_iter_no_change=10
+        ),
+        {"alpha": [0.0001, 0.001, 0.01], "l1_ratio": [0.15, 0.5, 0.85]},
         cv=cv5, scoring="f1_macro", n_jobs=1, verbose=1, refit=True
     )
     t0 = time.time()
@@ -355,24 +396,23 @@ if __name__ == "__main__":
     joblib.dump(search.best_estimator_, os.path.join(MODEL_DIR, "passive_aggressive.pkl"))
     del X_sub, y_sub, search; gc.collect()
 
-# ── Model 5: HistGradientBoosting (non-linear) ────────────────────────────
+    # ── Model 5: HistGradientBoosting (non-linear) ────────────────────────────
     print(f"\n{'='*60}")
     print("Model 5: HistGradientBoosting (non-linear, RAM-safe)")
-    X_sub, y_sub = subsample(X_train, y_train, HGB_SUBSAMPLE)  # raw (unscaled)
-
+    X_sub, y_sub = subsample(X_train, y_train, HGB_SUBSAMPLE)
     search = RandomizedSearchCV(
         HistGradientBoostingClassifier(
             random_state=42,
             class_weight="balanced"
         ),
         {
-            "max_iter": [200, 300],
-            "max_depth": [5, 7, None],
-            "learning_rate": [0.05, 0.1, 0.2],
-            "min_samples_leaf": [20, 40],
-            "l2_regularization": [0.0, 0.1]
+            "max_iter":          [200, 300],
+            "max_depth":         [5, 7, None],
+            "learning_rate":     [0.05, 0.1, 0.2],
+            "min_samples_leaf":  [20, 40],
+            "l2_regularization": [0.0, 0.1],
         },
-        n_iter=10,               
+        n_iter=10,
         cv=cv5,
         scoring="f1_macro",
         n_jobs=1,
@@ -383,7 +423,6 @@ if __name__ == "__main__":
     t0 = time.time()
     search.fit(X_sub, y_sub)
     print(f"  Best params: {search.best_params_} | CV F1: {search.best_score_:.4f} | {time.time()-t0:.0f}s")
-    
     res, cm = evaluate("HistGradientBoosting", search.best_estimator_,
                        X_test, y_test_r, X_train, y_train, HGB_SUBSAMPLE)
     res["Best Params"] = str(search.best_params_)
@@ -391,25 +430,25 @@ if __name__ == "__main__":
     plot_cm(cm, "HistGradientBoosting", OUTPUT_DIR)
     joblib.dump(search.best_estimator_, os.path.join(MODEL_DIR, "hgb.pkl"))
 
-    # Feature importance for HGB using Permutation Importance
-    print("\nCalculating Permutation Importance (this may take a moment)...")
-    # Using a subset of test data for speed; 20k is usually enough for stable rankings
+    # Permutation importance for HGB
+    print("\nCalculating Permutation Importance...")
     imp_sub_n = min(20_000, len(X_test))
-    X_imp, _, y_imp, _ = train_test_split(X_test, y_test_r, train_size=imp_sub_n, stratify=y_test_r, random_state=42)
-    
-    perm_importance = permutation_importance(
-        search.best_estimator_, X_imp, y_imp, n_repeats=5, random_state=42, n_jobs=-1
+    X_imp, _, y_imp, _ = train_test_split(
+        X_test, y_test_r,
+        train_size=imp_sub_n, stratify=y_test_r, random_state=42
     )
-
+    perm_imp = permutation_importance(
+        search.best_estimator_, X_imp, y_imp,
+        n_repeats=5, random_state=42, n_jobs=-1
+    )
     feat_imp = pd.DataFrame({
         "Feature":    features,
-        "Importance": perm_importance.importances_mean,
-        "Std":        perm_importance.importances_std
+        "Importance": perm_imp.importances_mean,
+        "Std":        perm_imp.importances_std
     }).sort_values("Importance", ascending=False)
-    
     feat_imp.to_csv(os.path.join(OUTPUT_DIR, "hgb_feature_importance.csv"), index=False)
-    print(f"\nTop 10 HGB features (Permutation Importance):\n{feat_imp.head(10).to_string(index=False)}")
-    
+    print(f"\nTop 15 HGB features (Permutation Importance):")
+    print(feat_imp.head(15).to_string(index=False))
     del X_sub, y_sub, X_imp, y_imp, search; gc.collect()
 
     # ── Save shared artifacts ─────────────────────────────────────────────────
@@ -422,8 +461,10 @@ if __name__ == "__main__":
     print(f"\n{'='*60}")
     print("FINAL MODEL COMPARISON (ranked by macro F1)")
     print(f"Baseline (majority class): {baseline:.4f}")
-    print(results_df[["Model", "Test Accuracy", "Test F1 Macro",
-                       "Test F1 Weighted", "CV F1 Macro", "CV F1 Std"]].to_string(index=False))
+    print(results_df[[
+        "Model", "Test Accuracy", "Test F1 Macro",
+        "Test F1 Weighted", "CV F1 Macro", "CV F1 Std"
+    ]].to_string(index=False))
     results_df.to_csv(os.path.join(OUTPUT_DIR, "all_model_results.csv"), index=False)
     print(f"\nAll results saved to: {OUTPUT_DIR}")
     print(f"All models saved to:  {MODEL_DIR}")
