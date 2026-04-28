@@ -32,6 +32,7 @@ from sklearn.linear_model import SGDClassifier, PassiveAggressiveClassifier
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import (
     classification_report, accuracy_score,
     f1_score, confusion_matrix, ConfusionMatrixDisplay
@@ -354,7 +355,7 @@ if __name__ == "__main__":
     joblib.dump(search.best_estimator_, os.path.join(MODEL_DIR, "passive_aggressive.pkl"))
     del X_sub, y_sub, search; gc.collect()
 
-    # ── Model 5: HistGradientBoosting (non-linear) ────────────────────────────
+# ── Model 5: HistGradientBoosting (non-linear) ────────────────────────────
     print(f"\n{'='*60}")
     print("Model 5: HistGradientBoosting (non-linear, RAM-safe)")
     X_sub, y_sub = subsample(X_train, y_train, HGB_SUBSAMPLE)  # raw (unscaled)
@@ -371,10 +372,10 @@ if __name__ == "__main__":
             "min_samples_leaf": [20, 40],
             "l2_regularization": [0.0, 0.1]
         },
-        n_iter=5,               
+        n_iter=10,               
         cv=cv5,
         scoring="f1_macro",
-        n_jobs=-1,
+        n_jobs=1,
         verbose=1,
         random_state=42,
         refit=True
@@ -382,6 +383,7 @@ if __name__ == "__main__":
     t0 = time.time()
     search.fit(X_sub, y_sub)
     print(f"  Best params: {search.best_params_} | CV F1: {search.best_score_:.4f} | {time.time()-t0:.0f}s")
+    
     res, cm = evaluate("HistGradientBoosting", search.best_estimator_,
                        X_test, y_test_r, X_train, y_train, HGB_SUBSAMPLE)
     res["Best Params"] = str(search.best_params_)
@@ -389,14 +391,26 @@ if __name__ == "__main__":
     plot_cm(cm, "HistGradientBoosting", OUTPUT_DIR)
     joblib.dump(search.best_estimator_, os.path.join(MODEL_DIR, "hgb.pkl"))
 
-    # Feature importance for HGB
+    # Feature importance for HGB using Permutation Importance
+    print("\nCalculating Permutation Importance (this may take a moment)...")
+    # Using a subset of test data for speed; 20k is usually enough for stable rankings
+    imp_sub_n = min(20_000, len(X_test))
+    X_imp, _, y_imp, _ = train_test_split(X_test, y_test_r, train_size=imp_sub_n, stratify=y_test_r, random_state=42)
+    
+    perm_importance = permutation_importance(
+        search.best_estimator_, X_imp, y_imp, n_repeats=5, random_state=42, n_jobs=-1
+    )
+
     feat_imp = pd.DataFrame({
         "Feature":    features,
-        "Importance": search.best_estimator_.feature_importances_
+        "Importance": perm_importance.importances_mean,
+        "Std":        perm_importance.importances_std
     }).sort_values("Importance", ascending=False)
+    
     feat_imp.to_csv(os.path.join(OUTPUT_DIR, "hgb_feature_importance.csv"), index=False)
-    print(f"\nTop 10 HGB features:\n{feat_imp.head(10).to_string(index=False)}")
-    del X_sub, y_sub, search; gc.collect()
+    print(f"\nTop 10 HGB features (Permutation Importance):\n{feat_imp.head(10).to_string(index=False)}")
+    
+    del X_sub, y_sub, X_imp, y_imp, search; gc.collect()
 
     # ── Save shared artifacts ─────────────────────────────────────────────────
     joblib.dump(scaler,   os.path.join(MODEL_DIR, "scaler.pkl"))
