@@ -627,33 +627,16 @@ if __name__ == "__main__":
     joblib.dump(search.best_estimator_, os.path.join(MODEL_DIR, "sgd_elasticnet.pkl"))
     del X_sub, y_sub, search; gc.collect()
 
-    # ── Model 4: Passive Aggressive ───────────────────────────────────────────
+    # ── Model 4: HistGradientBoosting ─────────────────────────────────────────
     print(f"\n{'='*60}")
-    print("Model 4: SGDClassifier — Passive Aggressive style (hinge loss)")
-    X_sub, y_sub = subsample(X_train_sc, y_train_r, LINEAR_SUBSAMPLE)
-    search = GridSearchCV(
-        SGDClassifier(
-            loss="hinge",
-            penalty=None,
-            learning_rate="pa1",
-            class_weight="balanced", max_iter=1000, tol=1e-3,
-            random_state=42, early_stopping=True,
-            validation_fraction=0.1, n_iter_no_change=10
-        ),
-        {"eta0": [0.001, 0.01, 0.1, 1.0]},
-        cv=cv5, scoring="f1_macro", n_jobs=1, verbose=1, refit=True
-    )
-
-    # ── Model 5: HistGradientBoosting ─────────────────────────────────────────
-    print(f"\n{'='*60}")
-    print("Model 5: HistGradientBoosting (non-linear, RAM-safe)")
+    print("Model 4: HistGradientBoosting (non-linear, RAM-safe)")
     X_sub, y_sub = subsample(X_train, y_train, HGB_SUBSAMPLE)
     search = RandomizedSearchCV(
         HistGradientBoostingClassifier(random_state=42, class_weight="balanced"),
         {"max_iter": [200, 300], "max_depth": [5, 7, None],
          "learning_rate": [0.05, 0.1, 0.2], "min_samples_leaf": [20, 40],
          "l2_regularization": [0.0, 0.1]},
-        n_iter=10, cv=cv5, scoring="f1_macro",
+        n_iter=5, cv=cv5, scoring="f1_macro",
         n_jobs=1, verbose=1, random_state=42, refit=True
     )
     t0 = time.time()
