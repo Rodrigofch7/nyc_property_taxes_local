@@ -316,7 +316,7 @@ if __name__ == "__main__":
             "learning_rate":     [0.05, 0.1, 0.2],
             "l2_regularization": [0.0, 0.1],
         },
-        n_iter=5, cv=cv5, scoring="f1_macro",
+        n_iter=10, cv=cv5, scoring="f1_macro",
         n_jobs=1, verbose=1, random_state=42, refit=True
     )
 
