@@ -8,6 +8,7 @@ OUTPUT_PATH = "/home/rodrigofrancachaves/project-nyc_property_taxes/data/process
 # ── Load ──────────────────────────────────────────────────────────────────────
 df = pd.read_parquet(INPUT_PATH)
 print(f"Loaded shape: {df.shape}")
+print(f"Column names: {df.columns.tolist()}")
 
 # ── Convert numeric columns ───────────────────────────────────────────────────
 numeric_cols = (
@@ -28,8 +29,8 @@ print(f"Shape after GROSS_SQFT filter: {df.shape}")
 
 # ── Classification function ───────────────────────────────────────────────────
 def classify_valuation(dataframe, value_col, area_col,
-                        group_cols=("BORO", "BLDG_CLASS"),
-                        threshold=0.15):
+                        group_cols=("BORO", "BLDG_CLASS", "FINTAXCLASS", "YRBUILT", "RESIDENTIAL_AREA_GROSS"),
+                        threshold=0.125):
     """
     Classifies properties based on assessed value per sqft
     relative to the median of their peer group (borough + building class).

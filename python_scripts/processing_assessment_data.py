@@ -48,7 +48,7 @@ COLS_NEEDED = [
     "YRBUILT", "BLD_STORY", "UNITS", "COOP_APTS",
     "LOT_FRT", "LOT_DEP", "LOT_IRREG",
     "STREET_NAME", "ZIP_CODE", "ZONING",
-    "FISCAL_YEAR", "TAX_YEAR"
+    "FISCAL_YEAR", "TAX_YEAR", "FINTAXCLASS", "RESIDENTIAL_AREA_GROSS"
 ]
 
 NUM_COLS = [
@@ -56,7 +56,7 @@ NUM_COLS = [
     "PYACTTOT", "PYACTLAND",
     "LAND_AREA", "NUM_BLDGS", "YRBUILT", "BLD_STORY",
     "UNITS", "COOP_APTS", "LOT_FRT", "LOT_DEP",
-    "BORO", "BLOCK", "LOT"
+    "BORO", "BLOCK", "LOT", "RESIDENTIAL_AREA_GROSS"
 ]
 
 # ── File mapping ──────────────────────────────────────────────────────────────

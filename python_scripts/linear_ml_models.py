@@ -545,44 +545,7 @@ if __name__ == "__main__":
     X_train2, X_test2, y_train2, y_test2 = train_test_split(
         X2, y2, test_size=0.20, random_state=42, stratify=y2
     )
-    del X2, y2
-    gc.collect()
-
-    print("Model: HistGradientBoosting (non-linear, RAM-safe)")
-    X_sub, y_sub = subsample(X_train2, y_train2, HGB_SUBSAMPLE)
-    search = RandomizedSearchCV(
-        HistGradientBoostingClassifier(random_state=42, class_weight="balanced"),
-        {"max_iter": [200, 300], "max_depth": [5, 7, None],
-         "learning_rate": [0.05, 0.1, 0.2], "min_samples_leaf": [20, 40],
-         "l2_regularization": [0.0, 0.1]},
-        n_iter=5, cv=cv5, scoring="f1_macro",
-        n_jobs=1, verbose=1, random_state=42, refit=True
-    )
-    t0 = time.time()
-    search.fit(X_sub, y_sub)
-    print(f"  Best params: {search.best_params_} | CV F1: {search.best_score_:.4f} | {time.time()-t0:.0f}s")
-    del X_sub, y_sub
-    gc.collect()
-
-    res, cm = evaluate("HistGradientBoosting", search.best_estimator_,
-                       X_test2, y_test2, X_train2, y_train2, HGB_SUBSAMPLE)
-    res["Best Params"] = str(search.best_params_)
-    all_results.append(res)
-    plot_cm(cm, "HistGradientBoosting", OUTPUT_DIR)
-
-    # ── HGB feature importance — built-in gain-based, zero extra RAM ──────────
-    print("\nCalculating HGB Feature Importance (built-in, no extra RAM)...")
-    feat_imp = pd.DataFrame({
-        "Feature":    features,
-        "Importance": search.best_estimator_.feature_importances_,
-    }).sort_values("Importance", ascending=False)
-    feat_imp.to_csv(os.path.join(OUTPUT_DIR, "hgb_feature_importance.csv"), index=False)
-    print(f"\nTop 20 HGB features:\n{feat_imp.head(20).to_string(index=False)}")
-
-    joblib.dump(search.best_estimator_, os.path.join(MODEL_DIR, "hgb.pkl"))
-    del search, X_train2, X_test2, y_train2, y_test2
-    gc.collect()
-
+ 
     # ── Save shared artefacts ─────────────────────────────────────────────────
     joblib.dump(scaler,   os.path.join(MODEL_DIR, "scaler.pkl"))
     joblib.dump(features, os.path.join(MODEL_DIR, "features.pkl"))
