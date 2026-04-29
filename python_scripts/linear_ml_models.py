@@ -529,23 +529,6 @@ if __name__ == "__main__":
                        features, cv5, OUTPUT_DIR, MODEL_DIR)
     all_results.append(res)
 
-    # Free scaled arrays before HGB (HGB uses raw unscaled data anyway)
-    del X_train_sc, X_test_sc
-    gc.collect()
-
-    # ── Reload raw X/y for HGB (needs unscaled data) ─────────────────────────
-    print(f"\n{'='*60}")
-    print("Reloading data for HistGradientBoosting (uses unscaled features)...")
-    df2 = load_data(DATA_PATH)
-    df2, _, _ = engineer_features(df2)
-    X2, y2 = prepare_xy(df2, features)
-    del df2
-    gc.collect()
-
-    X_train2, X_test2, y_train2, y_test2 = train_test_split(
-        X2, y2, test_size=0.20, random_state=42, stratify=y2
-    )
- 
     # ── Save shared artefacts ─────────────────────────────────────────────────
     joblib.dump(scaler,   os.path.join(MODEL_DIR, "scaler.pkl"))
     joblib.dump(features, os.path.join(MODEL_DIR, "features.pkl"))
