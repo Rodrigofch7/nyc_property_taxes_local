@@ -149,45 +149,46 @@ Following CAPP 121/122 principles of decomposition and abstraction, the project 
 
 ```
 project-nyc_property_taxes/
-├── python_scripts/
-│   ├── assessment_data_v2.py   # reads and cleans raw DOF assessment roll files
-│   ├── sales_data.py           # reads and cleans DOF annualized sales files
-│   ├── merging.py              # merges sales and assessment data on BBL key
-│   ├── assessment_wide.py      # pivots assessment data to wide format (one col per year)
-│   ├── classifying_data.py     # assigns peer-group labels (the target variable)
-│   └── ml_models.py            # trains, tunes, and evaluates all models
-├── milestones/
-│   ├── milestone2.md
-│   └── milestone3.md
+├── README.md
+├── data/
+│   ├── assessment_interim/
+│   ├── assessment_wide.parquet
+│   └── processed_labeled_data.parquet
+├── main.py
 ├── models/
-│   ├── sgd_l2.pkl
-│   ├── sgd_l1.pkl
-│   ├── sgd_elasticnet.pkl
-│   ├── hgb.pkl
-│   ├── scaler.pkl
-│   ├── features.pkl
-│   └── label_encoders.pkl
+│   ├── features.pkl
+│   ├── hgb.pkl
+│   ├── label_encoders.pkl
+│   ├── passive_aggressive.pkl
+│   ├── scaler.pkl
+│   ├── sgd_elasticnet.pkl
+│   ├── sgd_l1.pkl
+│   └── sgd_l2.pkl
 ├── outputs/
-│   ├── sgd_elasticnet_coefficients.png
-│   ├── sgd_elasticnet_coefficients.csv
-│   ├── sgd_l1_coefficients.png
-│   ├── sgd_l2_coefficients.png
-│   ├── hgb_feature_importance.csv
-│   ├── *_confusion_matrix.png
-│   └── all_model_results.csv
-└── data/                       # gitignored — too large to commit
-    ├── processed_labeled_data.parquet
-    ├── assessment_wide.parquet
-    ├── sales_clean.parquet
-    └── merged_2020_2024.parquet
+│   ├── all_model_results.csv
+│   ├── hgb_feature_importance.csv
+│   ├── histgradientboosting_confusion_matrix.png
+│   ├── passive_aggressive_coefficients.csv
+│   ├── passive_aggressive_coefficients.png
+│   ├── passive_aggressive_confusion_matrix.png
+│   ├── sgd_elasticnet_coefficients.csv
+│   ├── sgd_elasticnet_coefficients.png
+│   ├── sgd_elasticnet_confusion_matrix.png
+│   ├── sgd_l1_coefficients.csv
+│   ├── sgd_l1_coefficients.png
+│   ├── sgd_l1_confusion_matrix.png
+│   ├── sgd_l2_coefficients.csv
+│   ├── sgd_l2_coefficients.png
+│   └── sgd_l2_confusion_matrix.png
+├── pyproject.toml
+├── python_scripts/
+│   ├── classifying_data.py
+│   ├── merging_assessment_data.py
+│   ├── ml_models.py
+│   └── processing_assessment_data.py
+└── uv.lock
 ```
 
-The pipeline runs in a fixed order with no circular dependencies:
-
-```
-assessment_data_v2.py → sales_data.py → merging.py →
-assessment_wide.py → classifying_data.py → ml_models.py
-```
 
 Key design decisions:
 - **`engineer_features()`** is a pure function: takes a DataFrame, returns a DataFrame and feature list with no side effects.
