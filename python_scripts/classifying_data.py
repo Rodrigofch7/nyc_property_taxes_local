@@ -30,7 +30,7 @@ print(f"Shape after GROSS_SQFT filter: {df.shape}")
 # ── Classification function ───────────────────────────────────────────────────
 def classify_valuation(dataframe, value_col, area_col,
                         group_cols=("BORO", "BLDG_CLASS", "FINTAXCLASS", "YRBUILT", "RESIDENTIAL_AREA_GROSS"),
-                        threshold=0.125):
+                        threshold=0.25):
     """
     Classifies properties based on assessed value per sqft
     relative to the median of their peer group (borough + building class).
