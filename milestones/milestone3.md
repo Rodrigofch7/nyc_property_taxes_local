@@ -220,11 +220,8 @@ Key design decisions:
 ## Progress Summary
 
 - ✅ Data pipeline complete: assessment data (FY2020–FY2026), merged and labeled across 1,099,210 properties
-- ✅ Data leakage fixed: bare `FINACTTOT`/`FINACTLAND`/`FINMKTTOT` columns (FY2026 actuals) replaced with FY2025 equivalents throughout feature engineering
-- ✅ Peer-group labeling implemented: properties classified relative to borough + building class median assessed value per square foot
-- ✅ Feature engineering complete: 142 features including log transforms, YoY growth, cumulative growth, acceleration, volatility, cross-year ratios, and 9 leak-free projected FY2026 features via vectorized OLS extrapolation
+- ✅ Peer-group labeling: classified relative to borough + building class + tax class + year built + residential area median assessed value per square foot
+- ✅ Feature engineering complete: 142 features including log transforms, YoY growth, cumulative growth, acceleration, volatility, cross-year ratios
 - ✅ Linear models trained and evaluated: SGD ElasticNet (primary), L2, and L1 — achieving up to 0.8396 macro F1 against a 0.6264 baseline
 - ✅ Non-linear benchmark trained: HistGradientBoosting at 0.8602 macro F1
 - ✅ Coefficient plots and CSVs saved for all linear models
-- ✅ All models persisted to disk for downstream use
-- 🔄 Coefficient interpretation: next step — identify which features most strongly predict assessment disparities by borough and building class, and translate findings into policy-relevant conclusions
