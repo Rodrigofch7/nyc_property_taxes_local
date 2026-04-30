@@ -182,14 +182,21 @@ def prepare_xy(df, features, target_col="target_2026"):
 
 
 def subsample(X, y, n, seed=42):
-    if len(X) <= n: return np.asarray(X), np.asarray(y)
+    if len(X) <= n:
+        return X, np.asarray(y)          # X is already a DataFrame here
     rng = np.random.default_rng(seed)
     y_arr = np.asarray(y)
     classes, counts = np.unique(y_arr, return_counts=True)
-    idx = np.concatenate([rng.choice(np.where(y_arr == cls)[0], size=int(np.ceil((cnt / len(y)) * n)), replace=False) for cls, cnt in zip(classes, counts)])
-    rng.shuffle(idx); idx = idx[:n]
-    return np.asarray(X)[idx], y_arr[idx]
-
+    idx = np.concatenate([
+        rng.choice(np.where(y_arr == cls)[0],
+                   size=int(np.ceil((cnt / len(y)) * n)),
+                   replace=False)
+        for cls, cnt in zip(classes, counts)
+    ])
+    rng.shuffle(idx)
+    idx = idx[:n]
+    return X.iloc[idx], y_arr[idx]       # .iloc keeps column names intact
+ 
 
 # ── Execution ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
@@ -215,7 +222,7 @@ if __name__ == "__main__":
             "num_leaves": [31, 127],
             "reg_lambda": [0.1, 1.0]
         },
-        n_iter=10, cv=cv5, scoring="f1_macro", n_jobs=1, verbose=-1, random_state=42, refit=True
+        n_iter=10, cv=cv5, scoring="f1_macro", n_jobs=1, verbose=0, random_state=42, refit=True
     )
 
     t0 = time.time()
