@@ -158,54 +158,21 @@ We generate a **coefficient bar chart per class** (`outputs/sgd_elasticnet_coeff
 
 ## Code Organization
 
-Following CAPP 121/122 principles of decomposition and abstraction, the project separates concerns into single-responsibility modules that can each be run independently:
+Following CAPP 121/122 principles of decomposition and abstraction, the project separates concerns into single-responsibility modules that can each be run independently. We will continue to lay out the project structure following guidelines and what we learned in previous courses so that each module can be run independantly. The following is the structure we have set up thus far.
 
 ```
 project-nyc_property_taxes/
 ├── README.md
 ├── data/
-│   ├── assessment_interim/
-│   ├── assessment_wide.parquet
-│   └── processed_labeled_data.parquet
+├── milestones
 ├── main.py
 ├── models/
-│   ├── features.pkl
-│   ├── hgb_model.pkl
-│   ├── label_encoders.pkl
-│   ├── linear_features.pkl
-│   ├── scaler.pkl
-│   ├── sgd_elasticnet.pkl
-│   ├── sgd_l1.pkl
-│   └── sgd_l2.pkl
 ├── outputs/
-│   ├── hgb_confusion_matrix.png
-│   ├── hgb_feature_importance.csv
-│   ├── linear_model_results.csv
-│   ├── sgd_elasticnet_coefficients.csv
-│   ├── sgd_elasticnet_coefficients.png
-│   ├── sgd_elasticnet_confusion_matrix.png
-│   ├── sgd_l1_coefficients.csv
-│   ├── sgd_l1_coefficients.png
-│   ├── sgd_l1_confusion_matrix.png
-│   ├── sgd_l2_coefficients.csv
-│   ├── sgd_l2_coefficients.png
-│   └── sgd_l2_confusion_matrix.png
 ├── pyproject.toml
 ├── python_scripts/
-│   ├── classifying_data.py           # assigns peer-group labels (target variable)
-│   ├── linear_ml_models.py           # trains and evaluates all linear classifiers
-│   ├── merging_assessment_data.py    # merges and pivots raw DOF assessment files
-│   ├── non_linear_ml_models.py       # trains and evaluates HistGradientBoosting
-│   └── processing_assessment_data.py # reads and cleans raw DOF assessment rolls
 └── uv.lock
 ```
 
-The pipeline runs in a fixed order with no circular dependencies:
-
-```
-processing_assessment_data.py → merging_assessment_data.py →
-classifying_data.py → linear_ml_models.py / non_linear_ml_models.py
-```
 
 Key design decisions:
 - **`engineer_features()`** accumulates all new columns in a plain Python dict and performs a single `pd.concat()` at the end — eliminating pandas DataFrame fragmentation and the associated RAM spike from repeated one-by-one column assignment.
