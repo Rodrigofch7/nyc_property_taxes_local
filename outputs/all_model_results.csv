@@ -1,4 +1,0 @@
-Model,Test Accuracy,Test F1 Macro,Test F1 Weighted,CV F1 Macro,CV F1 Std,Best Params
-SGD ElasticNet,0.907,0.8296,0.9065,0.8289,0.0095,{'alpha': 0.1}
-SGD L2,0.9046,0.8289,0.905,0.8311,0.0053,{'alpha': 0.1}
-SGD L1,0.9029,0.8216,0.9026,0.8191,0.015,{'alpha': 0.1}

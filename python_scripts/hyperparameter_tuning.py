@@ -52,36 +52,73 @@ def load_best_params(model_key: str, path: str = DEFAULT_PARAMS_PATH) -> dict | 
     except FileNotFoundError:
         return None
 
-# ── Default parameter grids ───────────────────────────────────────────────────
+# ── Parameter grids ───────────────────────────────────────────────────────────
+# Strategy: wide first-pass grids covering the full plausible range.
+# After a first run the best params are saved to best_params.json and
+# CV is skipped entirely on subsequent runs.
 PARAM_GRIDS: dict = {
-    # Linear models
+    # ── Linear models ─────────────────────────────────────────────────────────
+    # alpha controls regularization strength (smaller = less regularization).
+    # Log-scale range 1e-4 → 10 covers everything from almost-unregularized
+    # to heavily regularized, appropriate for high-dimensional feature spaces.
     "sgd_l2": {
-        "alpha": [0.0001, 0.001, 0.01, 0.1],
+        "alpha": [1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 1.0, 10.0],
     },
     "sgd_l1": {
-        "alpha": [0.0001, 0.001, 0.01, 0.1],
+        "alpha": [1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 1.0, 10.0],
     },
     "sgd_elasticnet": {
-        "alpha":    [0.0001, 0.001, 0.01, 0.1],
-        "l1_ratio": [0.15, 0.5, 0.85],
+        "alpha":    [1e-4, 1e-3, 0.01, 0.1, 1.0],
+        # l1_ratio=0 → L2, l1_ratio=1 → L1; cover the full mixing range
+        "l1_ratio": [0.1, 0.25, 0.5, 0.75, 0.9],
     },
-    # Non-linear / tree models
+
+    # ── LightGBM ──────────────────────────────────────────────────────────────
+    # n_estimators: more trees = better up to a point; 1000+ often helps on
+    #   large tabular datasets when learning_rate is small.
+    # max_depth=-1 means no limit (LightGBM grows leaf-wise anyway).
+    # num_leaves: main complexity control in LightGBM; 2^max_depth is the
+    #   theoretical max — keep num_leaves < 2^max_depth to avoid overfitting.
+    # min_child_samples: minimum data per leaf — higher = more regularization,
+    #   important for rare classes (undervalued/overvalued).
+    # subsample / colsample_bytree: row/column sampling per tree — reduces
+    #   variance and speeds up training.
+    # reg_alpha / reg_lambda: L1/L2 regularization on leaf weights.
     "lgbm": {
-        "n_estimators":  [300, 500],
-        "max_depth":     [5, 9, -1],
-        "learning_rate": [0.05, 0.1],
-        "num_leaves":    [31, 127],
+        "n_estimators":      [300, 500, 800, 1000],
+        "max_depth":         [5, 7, 9, -1],
+        "learning_rate":     [0.01, 0.05, 0.1, 0.2],
+        "num_leaves":        [31, 63, 127, 255],
+        "min_child_samples": [20, 50, 100],
+        "subsample":         [0.7, 0.8, 1.0],
+        "colsample_bytree":  [0.7, 0.8, 1.0],
+        "reg_alpha":         [0.0, 0.1, 1.0],
+        "reg_lambda":        [0.0, 0.1, 1.0],
     },
+
+    # ── Random Forest ─────────────────────────────────────────────────────────
+    # max_depth=None = fully grown trees (can overfit; min_samples_leaf helps).
+    # max_features: "sqrt" is the classic default for classification.
     "random_forest": {
-        "n_estimators": [100, 300],
-        "max_depth":    [10, 20, None],
-        "min_samples_split": [2, 5],
+        "n_estimators":      [200, 500, 1000],
+        "max_depth":         [10, 20, 40, None],
+        "min_samples_split": [2, 5, 10],
+        "min_samples_leaf":  [1, 2, 5],
+        "max_features":      ["sqrt", "log2", 0.5],
     },
+
+    # ── XGBoost ───────────────────────────────────────────────────────────────
+    # gamma: minimum loss reduction to make a split — higher = more conservative.
+    # subsample / colsample_bytree: same role as in LightGBM.
     "xgb": {
-        "n_estimators":  [300, 500],
-        "max_depth":     [4, 6, 8],
-        "learning_rate": [0.05, 0.1],
-        "subsample":     [0.8, 1.0],
+        "n_estimators":     [300, 500, 800, 1000],
+        "max_depth":        [4, 6, 8, 10],
+        "learning_rate":    [0.01, 0.05, 0.1, 0.2],
+        "subsample":        [0.7, 0.8, 1.0],
+        "colsample_bytree": [0.7, 0.8, 1.0],
+        "gamma":            [0, 0.1, 0.5, 1.0],
+        "reg_alpha":        [0.0, 0.1, 1.0],
+        "reg_lambda":       [1.0, 5.0, 10.0],
     },
 }
 

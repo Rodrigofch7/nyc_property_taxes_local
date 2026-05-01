@@ -1,18 +1,12 @@
 {
   "sgd_l2": {
-    "alpha": 0.1
+    "alpha": 0.05
   },
   "sgd_l1": {
-    "alpha": 0.001
+    "alpha": 1.0
   },
   "sgd_elasticnet": {
     "alpha": 0.01,
-    "l1_ratio": 0.15
-  },
-  "lgbm": {
-    "num_leaves": 127,
-    "n_estimators": 300,
-    "max_depth": -1,
-    "learning_rate": 0.1
+    "l1_ratio": 0.1
   }
 }

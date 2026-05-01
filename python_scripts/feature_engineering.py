@@ -210,17 +210,38 @@ def engineer_features(
     gc.collect()
 
     # ── Final feature list ────────────────────────────────────────────────────
+    # All features below are derived only from structural data or FY2020-2025
+    # historical values. No FY2026 actuals are used anywhere — no leakage.
     features = (
         encoded_cat_cols +
         [
+            # Size & structure
             "LOG_GROSS_SQFT", "LOG_LAND_AREA", "NUM_BLDGS", "UNITS",
-            "COOP_APTS", "BLD_STORY", "LOT_AREA", "BUILDING_AGE",
-            "LOG_PYACTTOT", "LOG_ASSESS_PER_SQFT", "LAND_TO_TOTAL",
-            "MKT_TO_ASSESS", "ASSESS_TREND", "ASSESS_VOLATILITY",
+            "COOP_APTS", "BLD_STORY", "LOT_AREA",
+            # Previously missing — safe, derived from GROSS_SQFT/UNITS/LAND_AREA
+            "SQFT_PER_UNIT", "COVERAGE_RATIO",
+            # Age
+            "BUILDING_AGE",
+            # Previously missing — derived from YRBUILT bins only
+            "BUILDING_ERA",
+            # Prior year total assessment (FY2025 = last known, no leakage)
+            "LOG_PYACTTOT",
+            # Assessment ratios (all FY2025-based)
+            "ASSESS_PER_SQFT", "LOG_ASSESS_PER_SQFT",
+            "LAND_TO_TOTAL",
+            "MKT_TO_ASSESS",
+            # Previously missing — log of MKT_TO_ASSESS, better for skewed dist
+            "LOG_MKT_TO_ASSESS",
+            # Trend & volatility over FY2020-2025
+            "ASSESS_TREND", "ASSESS_VOLATILITY",
         ] +
+        # OLS-projected FY2026 values (extrapolated from FY2020-2025, no leakage)
         proj_feature_names +
+        # Historical valuation status flags (FY2020-2025)
         historical_status_cols +
+        # Log-transformed historical assessment series (FY2020-2025)
         log_acttot_cols + log_actland_cols + log_mkttot_cols +
+        # Year-over-year % changes (FY2020-2025)
         yoy_cols + yoy_land_cols + yoy_mkt_cols
     )
     features = [f for f in features if f in df.columns]
