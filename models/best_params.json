@@ -8,5 +8,16 @@
   "sgd_elasticnet": {
     "alpha": 0.01,
     "l1_ratio": 0.1
+  },
+  "lgbm": {
+    "subsample": 0.8,
+    "reg_lambda": 0.0,
+    "reg_alpha": 1.0,
+    "num_leaves": 63,
+    "n_estimators": 800,
+    "min_child_samples": 50,
+    "max_depth": -1,
+    "learning_rate": 0.1,
+    "colsample_bytree": 1.0
   }
 }
