@@ -6,6 +6,11 @@ Three tabs:
   1. Methodology — model explanation, feature importance, confusion matrix
   2. Borough Analysis — maps and charts of assessment patterns
   3. BBL Lookup — enter a BBL and get a prediction with explanation
+
+  # To run:
+  cd /home/rodrigofrancachaves/project-nyc_property_taxes
+    /home/rodrigofrancachaves/project-nyc_property_taxes/.venv/bin/streamlit run app_deploy/app.py
+
 """
 
 import streamlit as st
@@ -17,6 +22,10 @@ import matplotlib
 matplotlib.use("Agg")
 import os
 import sys
+from PIL import Image
+import os
+
+
 
 # ── Add python_scripts to path so feature_engineering imports work ────────────
 sys.path.insert(0, "/home/rodrigofrancachaves/project-nyc_property_taxes/python_scripts")
@@ -27,9 +36,13 @@ MODEL_DIR    = "/home/rodrigofrancachaves/project-nyc_property_taxes/models"
 OUTPUT_DIR   = "/home/rodrigofrancachaves/project-nyc_property_taxes/outputs"
 
 # ── Page config ───────────────────────────────────────────────────────────────
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+icon = Image.open(os.path.join(BASE_DIR, "nyc.png"))
+
 st.set_page_config(
     page_title="NYC Property Tax Assessment",
-    page_icon="🏙️",
+    page_icon=icon,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -91,7 +104,7 @@ def predict_bbl(bbl: str, df, model, features, le_dict):
         return None, None, None, None
 
     # Import engineer_features to apply same pipeline
-    from feature_engineering import engineer_features
+    from python_scripts.feature_engineering import engineer_features
     row_eng, feat_list, _ = engineer_features(row.copy(), le_dict=le_dict)
 
     # Keep only features the model knows about
@@ -110,7 +123,7 @@ def predict_bbl(bbl: str, df, model, features, le_dict):
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/e/ec/NYC_wikilogo.svg/200px-NYC_wikilogo.svg.png", width=80)
+    st.image(os.path.join(BASE_DIR, "nyc.png"), width=80)
     st.title("NYC Property Tax")
     st.markdown("**Assessment Classification Model**")
     st.markdown("---")
