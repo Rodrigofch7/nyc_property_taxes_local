@@ -48,9 +48,11 @@ SUBSAMPLE_SIZE = 300_000
 N_ITER      = 20
 CV_FOLDS    = 3
 
-# Set True to wipe cache and start fresh
+# Options:
+# False   → use cached params, skip CV (normal runs)
+# True    → wipe cache, run fresh CV, save results regardless
+# "safe"  → run fresh CV, only update cache if new params are better
 FORCE_RETUNE = False
-
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 def evaluate(model, X_test, y_test):

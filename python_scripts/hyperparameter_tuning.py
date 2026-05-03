@@ -244,35 +244,70 @@ def tune_lgbm(
     cv: int = 3,
     scoring: str = "f1_macro",
     random_state: int = 42,
-    force_retune: bool = False,
+    force_retune: bool | str = False,  # False | True | "safe"
 ):
     """
-    Tune LGBMClassifier with checkpointed manual search.
-
-    - First run:       runs CV, saves checkpoint after each combo
-    - Interrupted:     resume by running again — picks up from checkpoint
-    - Already done:    loads from best_params.json, skips search entirely
-    - force_retune:    set True to wipe cache and start fresh
+    force_retune options:
+      False   → load cached params if available, skip CV
+      True    → wipe cache, run CV, save whatever is best (even if worse)
+      "safe"  → run CV, only overwrite cache if new result is better
     """
-    if not force_retune:
-        saved = load_best_params(model_key, path=params_path)
-        if saved:
-            print(f"  Skipping search — loading saved params for '{model_key}'")
-            estimator.set_params(**saved)
-            estimator.fit(X_train, y_train)
-            return estimator
+    # Load existing best for comparison later
+    existing = load_best_params(model_key, path=params_path)
 
+    if force_retune is False and existing:
+        print(f"  Skipping search — loading saved params for '{model_key}'")
+        estimator.set_params(**existing)
+        estimator.fit(X_train, y_train)
+        return estimator
+
+    if force_retune is True:
+        # Wipe cache and start fresh
+        _clear_checkpoint(model_key)
+        clear_saved_params(model_key)
+        existing = None
+
+    # force_retune is True or "safe" — run the search
     grid = param_grid or PARAM_GRIDS["lgbm"]
     best_params = tune_with_checkpoints(
         estimator, grid, X_train, y_train,
         model_key=model_key,
         n_iter=n_iter, cv=cv, scoring=scoring,
         random_state=random_state,
-        force_retune=force_retune,
+        force_retune=(force_retune is True),  # only wipe checkpoint if True
     )
 
-    print(f"\n  Fitting final model with best params on full subsample...")
-    estimator.set_params(**best_params)
+    # Get the new best score from checkpoint
+    ckpt = _load_checkpoint(model_key)
+    new_score = ckpt["best_score"]
+
+    if force_retune == "safe" and existing:
+        # Compare new vs old — need to score old params too
+        print(f"\n  Comparing new vs existing params...")
+        from sklearn.model_selection import cross_val_score, StratifiedKFold
+        cv_splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
+        estimator.set_params(**existing)
+        old_scores = cross_val_score(
+            estimator, X_train, y_train,
+            cv=cv_splitter, scoring=scoring, n_jobs=1
+        )
+        old_score = float(old_scores.mean())
+
+        print(f"  Old params CV F1: {old_score:.4f}")
+        print(f"  New params CV F1: {new_score:.4f}")
+
+        if new_score > old_score:
+            print(f"  ✓ New params are better — updating cache")
+            save_best_params(model_key, best_params, path=params_path)
+            final_params = best_params
+        else:
+            print(f"  ✗ Old params are better — keeping cache unchanged")
+            final_params = existing
+    else:
+        final_params = best_params
+
+    print(f"\n  Fitting final model with best params...")
+    estimator.set_params(**final_params)
     estimator.fit(X_train, y_train)
     return estimator
 
