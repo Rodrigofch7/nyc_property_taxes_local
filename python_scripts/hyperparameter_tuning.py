@@ -2,30 +2,69 @@
 hyperparameter_tuning.py
 ========================
 Reusable hyperparameter search utilities for NYC property tax models.
-Supports GridSearchCV and RandomizedSearchCV with sensible defaults
-for SGDClassifier, LGBMClassifier, and any sklearn-compatible estimator.
 
-Usage:
-    from hyperparameter_tuning import tune, PARAM_GRIDS
+Key improvement over sklearn RandomizedSearchCV:
+  - Manual tuning loop with tqdm progress bar
+  - Saves best params after EVERY iteration → safe to Ctrl+C and resume
+  - On resume: skips already-evaluated combinations, loads best so far
+  - Checkpoint file: models/tuning_checkpoint_<model_key>.json
 """
 
 import json
 import os
 import time
 import gc
+import itertools
+import random
 import numpy as np
-from sklearn.model_selection import (
-    GridSearchCV,
-    RandomizedSearchCV,
-    StratifiedKFold,
-)
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 
-# ── Saved params path ─────────────────────────────────────────────────────────
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+    print("  tip: run 'uv add tqdm' for progress bars")
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
 DEFAULT_PARAMS_PATH = "/home/rodrigofrancachaves/project-nyc_property_taxes/models/best_params.json"
+CHECKPOINT_DIR      = "/home/rodrigofrancachaves/project-nyc_property_taxes/models"
 
 
+# ── Checkpoint helpers ────────────────────────────────────────────────────────
+def _checkpoint_path(model_key: str) -> str:
+    return os.path.join(CHECKPOINT_DIR, f"tuning_checkpoint_{model_key}.json")
+
+
+def _load_checkpoint(model_key: str) -> dict:
+    """Load tuning checkpoint: {best_score, best_params, evaluated: [...]}"""
+    path = _checkpoint_path(model_key)
+    try:
+        with open(path) as f:
+            ckpt = json.load(f)
+        n_done = len(ckpt.get("evaluated", []))
+        print(f"  Resuming from checkpoint — {n_done} combinations already evaluated")
+        print(f"  Best so far: F1={ckpt['best_score']:.4f} | {ckpt['best_params']}")
+        return ckpt
+    except FileNotFoundError:
+        return {"best_score": -1.0, "best_params": {}, "evaluated": []}
+
+
+def _save_checkpoint(model_key: str, ckpt: dict) -> None:
+    os.makedirs(CHECKPOINT_DIR, exist_ok=True)
+    with open(_checkpoint_path(model_key), "w") as f:
+        json.dump(ckpt, f, indent=2)
+
+
+def _clear_checkpoint(model_key: str) -> None:
+    path = _checkpoint_path(model_key)
+    if os.path.exists(path):
+        os.remove(path)
+        print(f"  Cleared checkpoint for '{model_key}'")
+
+
+# ── Saved best params helpers ─────────────────────────────────────────────────
 def save_best_params(model_key: str, params: dict, path: str = DEFAULT_PARAMS_PATH) -> None:
-    """Persist best params for model_key into the shared JSON file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     try:
         with open(path) as f:
@@ -39,10 +78,6 @@ def save_best_params(model_key: str, params: dict, path: str = DEFAULT_PARAMS_PA
 
 
 def load_best_params(model_key: str, path: str = DEFAULT_PARAMS_PATH) -> dict | None:
-    """
-    Load saved params for model_key from the shared JSON file.
-    Returns None if the file or key doesn't exist yet.
-    """
     try:
         with open(path) as f:
             params = json.load(f).get(model_key)
@@ -52,15 +87,22 @@ def load_best_params(model_key: str, path: str = DEFAULT_PARAMS_PATH) -> dict | 
     except FileNotFoundError:
         return None
 
+
+def clear_saved_params(model_key: str, path: str = DEFAULT_PARAMS_PATH) -> None:
+    try:
+        with open(path) as f:
+            all_params = json.load(f)
+        if model_key in all_params:
+            del all_params[model_key]
+            with open(path, "w") as f:
+                json.dump(all_params, f, indent=2)
+            print(f"  Cleared saved params for '{model_key}'")
+    except FileNotFoundError:
+        pass
+
+
 # ── Parameter grids ───────────────────────────────────────────────────────────
-# Strategy: wide first-pass grids covering the full plausible range.
-# After a first run the best params are saved to best_params.json and
-# CV is skipped entirely on subsequent runs.
 PARAM_GRIDS: dict = {
-    # ── Linear models ─────────────────────────────────────────────────────────
-    # alpha controls regularization strength (smaller = less regularization).
-    # Log-scale range 1e-4 → 10 covers everything from almost-unregularized
-    # to heavily regularized, appropriate for high-dimensional feature spaces.
     "sgd_l2": {
         "alpha": [1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 1.0, 10.0],
     },
@@ -69,138 +111,172 @@ PARAM_GRIDS: dict = {
     },
     "sgd_elasticnet": {
         "alpha":    [1e-4, 1e-3, 0.01, 0.1, 1.0],
-        # l1_ratio=0 → L2, l1_ratio=1 → L1; cover the full mixing range
         "l1_ratio": [0.1, 0.25, 0.5, 0.75, 0.9],
     },
-
-    # ── LightGBM ──────────────────────────────────────────────────────────────
-    # n_estimators: more trees = better up to a point; 1000+ often helps on
-    #   large tabular datasets when learning_rate is small.
-    # max_depth=-1 means no limit (LightGBM grows leaf-wise anyway).
-    # num_leaves: main complexity control in LightGBM; 2^max_depth is the
-    #   theoretical max — keep num_leaves < 2^max_depth to avoid overfitting.
-    # min_child_samples: minimum data per leaf — higher = more regularization,
-    #   important for rare classes (undervalued/overvalued).
-    # subsample / colsample_bytree: row/column sampling per tree — reduces
-    #   variance and speeds up training.
-    # reg_alpha / reg_lambda: L1/L2 regularization on leaf weights.
+    # Reduced grid — each combo takes ~5-10 min on 300k rows
+    # 20 iterations × 3-fold CV = 60 fits total
     "lgbm": {
-        "n_estimators":      [300, 500, 800, 1000],
-        "max_depth":         [5, 7, 9, -1],
-        "learning_rate":     [0.01, 0.05, 0.1, 0.2],
-        "num_leaves":        [31, 63, 127, 255],
-        "min_child_samples": [20, 50, 100],
-        "subsample":         [0.7, 0.8, 1.0],
-        "colsample_bytree":  [0.7, 0.8, 1.0],
-        "reg_alpha":         [0.0, 0.1, 1.0],
-        "reg_lambda":        [0.0, 0.1, 1.0],
-    },
-
-    # ── Random Forest ─────────────────────────────────────────────────────────
-    # max_depth=None = fully grown trees (can overfit; min_samples_leaf helps).
-    # max_features: "sqrt" is the classic default for classification.
-    "random_forest": {
-        "n_estimators":      [200, 500, 1000],
-        "max_depth":         [10, 20, 40, None],
-        "min_samples_split": [2, 5, 10],
-        "min_samples_leaf":  [1, 2, 5],
-        "max_features":      ["sqrt", "log2", 0.5],
-    },
-
-    # ── XGBoost ───────────────────────────────────────────────────────────────
-    # gamma: minimum loss reduction to make a split — higher = more conservative.
-    # subsample / colsample_bytree: same role as in LightGBM.
-    "xgb": {
-        "n_estimators":     [300, 500, 800, 1000],
-        "max_depth":        [4, 6, 8, 10],
-        "learning_rate":    [0.01, 0.05, 0.1, 0.2],
-        "subsample":        [0.7, 0.8, 1.0],
-        "colsample_bytree": [0.7, 0.8, 1.0],
-        "gamma":            [0, 0.1, 0.5, 1.0],
-        "reg_alpha":        [0.0, 0.1, 1.0],
-        "reg_lambda":       [1.0, 5.0, 10.0],
+        "n_estimators":      [300, 500, 800],
+        "learning_rate":     [0.05, 0.1, 0.2],
+        "num_leaves":        [63, 127, 255],
+        "min_child_samples": [20, 50],
+        "subsample":         [0.8, 1.0],
+        "colsample_bytree":  [0.8, 1.0],
+        "reg_alpha":         [0.0, 0.5, 1.0],
+        "reg_lambda":        [0.0, 0.5, 1.0],
     },
 }
 
 
-# ── Core tuning function ──────────────────────────────────────────────────────
-def tune(
+# ── Core: manual tuning loop with checkpointing ───────────────────────────────
+def tune_with_checkpoints(
     estimator,
     param_grid: dict,
     X_train,
     y_train,
     *,
-    method: str = "random",
-    n_iter: int = 10,
+    model_key: str,
+    n_iter: int = 20,
     cv: int = 3,
     scoring: str = "f1_macro",
-    n_jobs: int = 1,
     random_state: int = 42,
-    verbose: int = 0,
-    refit: bool = True,
+    force_retune: bool = False,
 ):
     """
-    Run hyperparameter search and return the fitted search object.
+    Manual hyperparameter search with:
+      - tqdm progress bar showing iteration, score, elapsed time
+      - checkpoint saved after EVERY iteration
+      - safe to Ctrl+C and resume — already-evaluated combos are skipped
+      - best params saved to best_params.json when done
 
-    Parameters
-    ----------
-    estimator   : sklearn-compatible estimator (unfitted)
-    param_grid  : dict of parameter name → list of values
-    X_train     : training features (array or DataFrame)
-    y_train     : training labels
-    method      : 'random' (RandomizedSearchCV) or 'grid' (GridSearchCV)
-    n_iter      : number of random combinations (only used when method='random')
-    cv          : number of cross-validation folds
-    scoring     : sklearn scoring string (default 'f1_macro')
-    n_jobs      : parallelism (-1 = all cores); keep at 1 for LightGBM
-    random_state: for reproducibility
-    verbose     : verbosity level passed to the search object
-    refit       : whether to refit the best estimator on full X_train
-
-    Returns
-    -------
-    search : fitted GridSearchCV or RandomizedSearchCV object
-             access best model via search.best_estimator_
+    Returns the best params dict.
     """
+    if force_retune:
+        _clear_checkpoint(model_key)
+        clear_saved_params(model_key)
+
+    # Load checkpoint (picks up where we left off)
+    ckpt = _load_checkpoint(model_key)
+
+    # Build shuffled candidate list
+    keys       = list(param_grid.keys())
+    values     = list(param_grid.values())
+    all_combos = [dict(zip(keys, v)) for v in itertools.product(*values)]
+    rng        = random.Random(random_state)
+    rng.shuffle(all_combos)
+    candidates = all_combos[:n_iter]
+
+    # Skip already evaluated combinations
+    evaluated_strs = {json.dumps(e["params"], sort_keys=True) for e in ckpt["evaluated"]}
+    remaining      = [c for c in candidates if json.dumps(c, sort_keys=True) not in evaluated_strs]
+
+    if not remaining:
+        print(f"  All {n_iter} combinations already evaluated — loading best params")
+        return ckpt["best_params"]
+
+    n_done = len(ckpt["evaluated"])
+    print(f"\n  {n_done} done, {len(remaining)} remaining out of {n_iter} total")
+    print(f"  Best so far: F1={ckpt['best_score']:.4f}")
+    print(f"  Checkpoint: {_checkpoint_path(model_key)}")
+    print(f"  (Safe to Ctrl+C — progress is saved after each iteration)\n")
+
     cv_splitter = StratifiedKFold(n_splits=cv, shuffle=True, random_state=random_state)
+    iterator    = tqdm(remaining, desc=f"Tuning {model_key}", unit="combo") if HAS_TQDM else remaining
 
-    common_kwargs = dict(
-        estimator=estimator,
-        cv=cv_splitter,
-        scoring=scoring,
-        n_jobs=n_jobs,
-        verbose=verbose,
-        refit=refit,
-    )
+    for params in iterator:
+        t0 = time.time()
+        try:
+            estimator.set_params(**params)
+            scores = cross_val_score(
+                estimator, X_train, y_train,
+                cv=cv_splitter, scoring=scoring, n_jobs=1
+            )
+            score = float(scores.mean())
+        except Exception as e:
+            print(f"\n  WARNING: params {params} failed — {e}")
+            score = -1.0
 
-    if method == "random":
-        search = RandomizedSearchCV(
-            param_distributions=param_grid,
-            n_iter=n_iter,
-            random_state=random_state,
-            **common_kwargs,
-        )
-    elif method == "grid":
-        search = GridSearchCV(
-            param_grid=param_grid,
-            **common_kwargs,
-        )
-    else:
-        raise ValueError(f"method must be 'random' or 'grid', got '{method}'")
+        elapsed = time.time() - t0
+        is_best = score > ckpt["best_score"]
 
-    t0 = time.time()
-    search.fit(X_train, y_train)
-    elapsed = time.time() - t0
+        # Update checkpoint
+        ckpt["evaluated"].append({"params": params, "score": score})
+        if is_best:
+            ckpt["best_score"]  = score
+            ckpt["best_params"] = params
 
-    print(f"  Best params  : {search.best_params_}")
-    print(f"  CV {scoring}: {search.best_score_:.4f}")
-    print(f"  Search time  : {elapsed:.0f}s")
+        # Save after every single iteration
+        _save_checkpoint(model_key, ckpt)
 
-    gc.collect()
-    return search
+        n_total_done = len(ckpt["evaluated"])
+        msg = f"  [{n_total_done}/{n_iter}] F1={score:.4f} | best={ckpt['best_score']:.4f} | {elapsed:.0f}s"
+        if is_best:
+            msg += " ← NEW BEST"
+
+        if HAS_TQDM:
+            tqdm.write(msg)
+            iterator.set_postfix({
+                "best": f"{ckpt['best_score']:.4f}",
+                "last": f"{score:.4f}",
+            })
+        else:
+            print(msg)
+
+        gc.collect()
+
+    best = ckpt["best_params"]
+    save_best_params(model_key, best)
+    print(f"\n  Tuning complete — best F1: {ckpt['best_score']:.4f}")
+    print(f"  Best params: {best}")
+    return best
 
 
 # ── Convenience wrappers ──────────────────────────────────────────────────────
+def tune_lgbm(
+    estimator,
+    X_train,
+    y_train,
+    param_grid: dict | None = None,
+    *,
+    model_key: str = "lgbm",
+    params_path: str = DEFAULT_PARAMS_PATH,
+    n_iter: int = 20,
+    cv: int = 3,
+    scoring: str = "f1_macro",
+    random_state: int = 42,
+    force_retune: bool = False,
+):
+    """
+    Tune LGBMClassifier with checkpointed manual search.
+
+    - First run:       runs CV, saves checkpoint after each combo
+    - Interrupted:     resume by running again — picks up from checkpoint
+    - Already done:    loads from best_params.json, skips search entirely
+    - force_retune:    set True to wipe cache and start fresh
+    """
+    if not force_retune:
+        saved = load_best_params(model_key, path=params_path)
+        if saved:
+            print(f"  Skipping search — loading saved params for '{model_key}'")
+            estimator.set_params(**saved)
+            estimator.fit(X_train, y_train)
+            return estimator
+
+    grid = param_grid or PARAM_GRIDS["lgbm"]
+    best_params = tune_with_checkpoints(
+        estimator, grid, X_train, y_train,
+        model_key=model_key,
+        n_iter=n_iter, cv=cv, scoring=scoring,
+        random_state=random_state,
+        force_retune=force_retune,
+    )
+
+    print(f"\n  Fitting final model with best params on full subsample...")
+    estimator.set_params(**best_params)
+    estimator.fit(X_train, y_train)
+    return estimator
+
+
 def tune_sgd(
     estimator,
     X_train,
@@ -211,66 +287,28 @@ def tune_sgd(
     params_path: str = DEFAULT_PARAMS_PATH,
     cv: int = 5,
     scoring: str = "f1_macro",
-    verbose: int = 1,
+    force_retune: bool = False,
 ):
-    """
-    GridSearch over alpha (and optionally l1_ratio) for an SGDClassifier.
-    If saved params exist for model_key, skips search and sets those params
-    directly on the estimator instead.
-    """
     key = model_key or f"sgd_{penalty}"
-    saved = load_best_params(key, path=params_path)
-    if saved:
-        print(f"  Skipping CV search — loading saved params for '{key}'")
-        estimator.set_params(**saved)
-        estimator.fit(X_train, y_train)
-        return estimator
+    if not force_retune:
+        saved = load_best_params(key, path=params_path)
+        if saved:
+            print(f"  Skipping search — loading saved params for '{key}'")
+            estimator.set_params(**saved)
+            estimator.fit(X_train, y_train)
+            return estimator
 
-    grid_key   = f"sgd_{penalty}" if f"sgd_{penalty}" in PARAM_GRIDS else "sgd_l2"
-    param_grid = PARAM_GRIDS[grid_key]
-    print(f"\nTuning SGD ({penalty.upper()}) — grid search over: {param_grid}")
-    search = tune(
+    grid_key    = f"sgd_{penalty}" if f"sgd_{penalty}" in PARAM_GRIDS else "sgd_l2"
+    param_grid  = PARAM_GRIDS[grid_key]
+    best_params = tune_with_checkpoints(
         estimator, param_grid, X_train, y_train,
-        method="grid", cv=cv, scoring=scoring, n_jobs=1, verbose=verbose,
+        model_key=key, cv=cv, scoring=scoring,
+        n_iter=len(list(itertools.product(*param_grid.values()))),
+        force_retune=force_retune,
     )
-    save_best_params(key, search.best_params_, path=params_path)
-    return search
-
-
-def tune_lgbm(
-    estimator,
-    X_train,
-    y_train,
-    param_grid: dict | None = None,
-    *,
-    model_key: str = "lgbm",
-    params_path: str = DEFAULT_PARAMS_PATH,
-    n_iter: int = 10,
-    cv: int = 3,
-    scoring: str = "f1_macro",
-    random_state: int = 42,
-    verbose: int = 0,
-):
-    """
-    RandomizedSearch for LGBMClassifier.
-    If saved params exist for model_key, skips search and fits directly.
-    """
-    saved = load_best_params(model_key, path=params_path)
-    if saved:
-        print(f"  Skipping CV search — loading saved params for '{model_key}'")
-        estimator.set_params(**saved)
-        estimator.fit(X_train, y_train)
-        return estimator
-
-    grid = param_grid or PARAM_GRIDS["lgbm"]
-    print(f"\nTuning LightGBM — random search ({n_iter} iterations) over: {list(grid.keys())}")
-    search = tune(
-        estimator, grid, X_train, y_train,
-        method="random", n_iter=n_iter, cv=cv, scoring=scoring,
-        n_jobs=1, random_state=random_state, verbose=verbose,
-    )
-    save_best_params(model_key, search.best_params_, path=params_path)
-    return search
+    estimator.set_params(**best_params)
+    estimator.fit(X_train, y_train)
+    return estimator
 
 
 def tune_generic(
@@ -279,40 +317,28 @@ def tune_generic(
     y_train,
     model_key: str,
     *,
-    method: str = "random",
-    params_path: str = DEFAULT_PARAMS_PATH,
-    n_iter: int = 10,
+    n_iter: int = 20,
     cv: int = 3,
     scoring: str = "f1_macro",
     random_state: int = 42,
-    verbose: int = 0,
+    force_retune: bool = False,
 ):
-    """
-    Tune any estimator using a named grid from PARAM_GRIDS.
-    If saved params exist for model_key, skips search and fits directly.
-
-    Example
-    -------
-        search = tune_generic(XGBClassifier(), X_train, y_sub, "xgb")
-    """
-    saved = load_best_params(model_key, path=params_path)
-    if saved:
-        print(f"  Skipping CV search — loading saved params for '{model_key}'")
-        estimator.set_params(**saved)
-        estimator.fit(X_train, y_train)
-        return estimator
+    if not force_retune:
+        saved = load_best_params(model_key)
+        if saved:
+            print(f"  Skipping search — loading saved params for '{model_key}'")
+            estimator.set_params(**saved)
+            estimator.fit(X_train, y_train)
+            return estimator
 
     if model_key not in PARAM_GRIDS:
-        raise KeyError(
-            f"'{model_key}' not in PARAM_GRIDS. "
-            f"Available keys: {list(PARAM_GRIDS.keys())}"
-        )
-    grid = PARAM_GRIDS[model_key]
-    print(f"\nTuning {model_key} — {method} search over: {list(grid.keys())}")
-    search = tune(
-        estimator, grid, X_train, y_train,
-        method=method, n_iter=n_iter, cv=cv, scoring=scoring,
-        n_jobs=1, random_state=random_state, verbose=verbose,
+        raise KeyError(f"'{model_key}' not in PARAM_GRIDS. Available: {list(PARAM_GRIDS.keys())}")
+
+    best_params = tune_with_checkpoints(
+        estimator, PARAM_GRIDS[model_key], X_train, y_train,
+        model_key=model_key, n_iter=n_iter, cv=cv, scoring=scoring,
+        random_state=random_state, force_retune=force_retune,
     )
-    save_best_params(model_key, search.best_params_, path=params_path)
-    return search
+    estimator.set_params(**best_params)
+    estimator.fit(X_train, y_train)
+    return estimator

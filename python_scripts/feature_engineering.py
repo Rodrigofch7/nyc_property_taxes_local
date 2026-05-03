@@ -184,6 +184,124 @@ def engineer_features(
             new_cols[resid.name] = resid
             proj_feature_names  += [proj.name, ratio.name, resid.name]
 
+    # ── NEW: Market vs assessed gap per year ──────────────────────────────────
+    # If market grows faster than assessed → likely undervalued signal
+    gap_cols = []
+    for i in range(1, len(historical_years)):
+        yr = historical_years[i]
+        mkt_yoy_col  = f"MKT_YOY_FY{yr}"
+        act_yoy_col  = f"ASSESS_YOY_FY{yr}"
+        if mkt_yoy_col in new_cols and act_yoy_col in new_cols:
+            name = f"MKT_ASSESS_GAP_YOY_FY{yr}"
+            new_cols[name] = (
+                pd.Series(new_cols[mkt_yoy_col], index=df.index) -
+                pd.Series(new_cols[act_yoy_col], index=df.index)
+            ).clip(-5, 5)
+            gap_cols.append(name)
+
+    # ── NEW: Cumulative growth from 2020 baseline ─────────────────────────────
+    cumul_cols = []
+    if finacttot_cols:
+        base_col = finacttot_cols[0]
+        for col in finacttot_cols[1:]:
+            yr   = col.split("FY")[1]
+            name = f"CUMUL_GROWTH_FY{yr}"
+            new_cols[name] = (
+                (df[col].fillna(0) - df[base_col].fillna(0)) /
+                df[base_col].fillna(1).clip(lower=1)
+            ).clip(-1, 10)
+            cumul_cols.append(name)
+
+    cumul_mkt_cols = []
+    if finmkttot_cols:
+        base_mkt = finmkttot_cols[0]
+        for col in finmkttot_cols[1:]:
+            yr   = col.split("FY")[1]
+            name = f"CUMUL_MKT_GROWTH_FY{yr}"
+            new_cols[name] = (
+                (df[col].fillna(0) - df[base_mkt].fillna(0)) /
+                df[base_mkt].fillna(1).clip(lower=1)
+            ).clip(-1, 10)
+            cumul_mkt_cols.append(name)
+
+    # ── NEW: Assessment acceleration (2nd derivative) ─────────────────────────
+    accel_cols = []
+    if len(yoy_cols) >= 2:
+        for i in range(1, len(yoy_cols)):
+            yr   = historical_years[i + 1]
+            name = f"ASSESS_ACCEL_FY{yr}"
+            new_cols[name] = (
+                pd.Series(new_cols[yoy_cols[i]], index=df.index) -
+                pd.Series(new_cols[yoy_cols[i - 1]], index=df.index)
+            ).clip(-5, 5)
+            accel_cols.append(name)
+
+    # ── NEW: Assessed per sqft per year (trajectory of assessment intensity) ──
+    psqft_cols = []
+    for col in finacttot_cols:
+        yr   = col.split("FY")[1]
+        name = f"ASSESS_PER_SQFT_FY{yr}"
+        new_cols[name] = (df[col].fillna(0) / df["GROSS_SQFT"].clip(lower=1))
+        psqft_cols.append(name)
+
+    # ── NEW: Land ratio per year ──────────────────────────────────────────────
+    land_ratio_cols = []
+    for yr in historical_years:
+        act_col  = f"FINACTTOT_FY{yr}"
+        land_col = f"FINACTLAND_FY{yr}"
+        if act_col in df.columns and land_col in df.columns:
+            name = f"LAND_RATIO_FY{yr}"
+            new_cols[name] = (
+                df[land_col].fillna(0) /
+                df[act_col].fillna(1).clip(lower=1)
+            ).clip(0, 1)
+            land_ratio_cols.append(name)
+
+    # ── NEW: Consistent classification score ──────────────────────────────────
+    # How many years in a row was the property over/under/fairly valued?
+    # This is a very strong signal — persistent patterns predict future patterns
+    over_cols  = [c for c in df.columns if "overvalued_"    in c and any(str(y) in c for y in historical_years)]
+    under_cols = [c for c in df.columns if "undervalued_"   in c and any(str(y) in c for y in historical_years)]
+    fair_cols  = [c for c in df.columns if "fairly_valued_" in c and any(str(y) in c for y in historical_years)]
+
+    if over_cols:
+        new_cols["CONSISTENT_OVERVALUED"]  = df[over_cols].sum(axis=1)
+        new_cols["CONSISTENT_UNDERVALUED"] = df[under_cols].sum(axis=1)
+        new_cols["CONSISTENT_FAIR"]        = df[fair_cols].sum(axis=1)
+        # Dominant class over history
+        new_cols["DOMINANT_CLASS"] = (
+            pd.concat([
+                df[over_cols].sum(axis=1).rename("over"),
+                df[under_cols].sum(axis=1).rename("under"),
+                df[fair_cols].sum(axis=1).rename("fair"),
+            ], axis=1)
+        ).idxmax(axis=1).map({"over": 0, "under": 1, "fair": 2}).fillna(2)
+
+    # ── NEW: NYC cap flag ─────────────────────────────────────────────────────
+    # NYC caps Class 1 annual increases at ~6%; if YoY is near 6%, likely capped
+    if yoy_cols:
+        last_yoy = yoy_cols[-1]
+        new_cols["ASSESS_AT_CAP"] = pd.Series(new_cols[last_yoy], index=df.index).between(0.04, 0.07).astype(int)
+    else:
+        new_cols["ASSESS_AT_CAP"] = 0
+
+    # ── NEW: Market trend ─────────────────────────────────────────────────────
+    if len(finmkttot_cols) >= 2:
+        new_cols["MKT_TREND"] = (
+            (df[finmkttot_cols[-1]].fillna(0) - df[finmkttot_cols[0]].fillna(0)) /
+            df[finmkttot_cols[0]].fillna(1).clip(lower=1)
+        ).clip(-1, 10)
+    else:
+        new_cols["MKT_TREND"] = 0.0
+
+    # ── NEW: Spread between market trend and assess trend ─────────────────────
+    # Large positive = market outpacing assessment = likely undervalued
+    if "MKT_TREND" in new_cols and "ASSESS_TREND" in new_cols:
+        new_cols["MKT_VS_ASSESS_TREND_SPREAD"] = (
+            pd.Series(new_cols["MKT_TREND"],    index=df.index) -
+            pd.Series(new_cols["ASSESS_TREND"], index=df.index)
+        ).clip(-10, 10)
+
     # ── Categorical encoding ──────────────────────────────────────────────────
     categorical_cols = ["BORO", "BLDG_CLASS", "ZIP_CODE", "ZONING"]
     le_dict: dict = {}
@@ -210,39 +328,46 @@ def engineer_features(
     gc.collect()
 
     # ── Final feature list ────────────────────────────────────────────────────
-    # All features below are derived only from structural data or FY2020-2025
-    # historical values. No FY2026 actuals are used anywhere — no leakage.
+    scalar_extras = []
+    for name in [
+        "CONSISTENT_OVERVALUED", "CONSISTENT_UNDERVALUED", "CONSISTENT_FAIR",
+        "DOMINANT_CLASS", "ASSESS_AT_CAP", "MKT_TREND", "MKT_VS_ASSESS_TREND_SPREAD",
+    ]:
+        if name in df.columns:
+            scalar_extras.append(name)
+
     features = (
         encoded_cat_cols +
         [
             # Size & structure
             "LOG_GROSS_SQFT", "LOG_LAND_AREA", "NUM_BLDGS", "UNITS",
             "COOP_APTS", "BLD_STORY", "LOT_AREA",
-            # Previously missing — safe, derived from GROSS_SQFT/UNITS/LAND_AREA
             "SQFT_PER_UNIT", "COVERAGE_RATIO",
             # Age
-            "BUILDING_AGE",
-            # Previously missing — derived from YRBUILT bins only
-            "BUILDING_ERA",
-            # Prior year total assessment (FY2025 = last known, no leakage)
+            "BUILDING_AGE", "BUILDING_ERA",
+            # Prior year total assessment
             "LOG_PYACTTOT",
-            # Assessment ratios (all FY2025-based)
+            # Assessment ratios (FY2025-based)
             "ASSESS_PER_SQFT", "LOG_ASSESS_PER_SQFT",
-            "LAND_TO_TOTAL",
-            "MKT_TO_ASSESS",
-            # Previously missing — log of MKT_TO_ASSESS, better for skewed dist
-            "LOG_MKT_TO_ASSESS",
+            "LAND_TO_TOTAL", "MKT_TO_ASSESS", "LOG_MKT_TO_ASSESS",
             # Trend & volatility over FY2020-2025
             "ASSESS_TREND", "ASSESS_VOLATILITY",
         ] +
-        # OLS-projected FY2026 values (extrapolated from FY2020-2025, no leakage)
-        proj_feature_names +
-        # Historical valuation status flags (FY2020-2025)
-        historical_status_cols +
-        # Log-transformed historical assessment series (FY2020-2025)
-        log_acttot_cols + log_actland_cols + log_mkttot_cols +
-        # Year-over-year % changes (FY2020-2025)
-        yoy_cols + yoy_land_cols + yoy_mkt_cols
+        scalar_extras +                # consistency scores, cap flag, mkt trend
+        proj_feature_names +           # OLS-projected FY2026 values
+        historical_status_cols +       # binary labels per year
+        log_acttot_cols +              # log assessed total per year
+        log_actland_cols +             # log assessed land per year
+        log_mkttot_cols +              # log market total per year
+        yoy_cols +                     # YoY % change in assessed total
+        yoy_land_cols +                # YoY % change in assessed land
+        yoy_mkt_cols +                 # YoY % change in market total
+        gap_cols +                     # market vs assessed gap per year
+        cumul_cols +                   # cumulative assessed growth from 2020
+        cumul_mkt_cols +               # cumulative market growth from 2020
+        accel_cols +                   # assessment acceleration
+        psqft_cols +                   # assessed per sqft per year
+        land_ratio_cols                # land/total ratio per year
     )
     features = [f for f in features if f in df.columns]
 
