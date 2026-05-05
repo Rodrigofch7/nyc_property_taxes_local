@@ -7,9 +7,7 @@ Three tabs:
   2. Borough Analysis — maps and charts of assessment patterns
   3. BBL Lookup — enter a BBL and get a prediction with explanation
 
-  # To run:
-  cd /home/rodrigofrancachaves/project-nyc_property_taxes
-    /home/rodrigofrancachaves/project-nyc_property_taxes/.venv/bin/streamlit run app_deploy/app.py
+  # To run: uv run streamlit run app_deploy/app.py
 
 """
 

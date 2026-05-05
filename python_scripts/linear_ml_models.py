@@ -37,6 +37,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 LINEAR_SUBSAMPLE = 100_000
 
+# Options:
+# False   → use cached params, skip CV (normal runs)
+# True    → wipe cache, run fresh CV, save results regardless
+# "safe"  → run fresh CV, only update cache if new params are better
+FORCE_RETUNE = False
+
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 def evaluate(name, model, X_test, y_test, X_train, y_train, subsample_n):
@@ -117,7 +123,7 @@ def plot_cm(cm, name, output_dir):
 # ── Train one SGD model ───────────────────────────────────────────────────────
 def train_sgd(name, penalty, extra_params,
               X_train_sc, y_train_r, X_test_sc, y_test_r,
-              features, cv5, output_dir, model_dir):
+              features, cv5, output_dir, model_dir, force_retune=False):
     print(f"\n{'='*60}\nModel: SGDClassifier — {name}")
 
     X_sub, y_sub = subsample(X_train_sc, y_train_r, LINEAR_SUBSAMPLE)
@@ -136,7 +142,7 @@ def train_sgd(name, penalty, extra_params,
     )
 
     result = tune_sgd(base_estimator, X_sub, y_sub, penalty=penalty, cv=5,
-                      model_key=f"sgd_{penalty.lower()}")
+                      model_key=f"sgd_{penalty.lower()}", force_retune=force_retune)
     del X_sub, y_sub
     gc.collect()
 
@@ -194,17 +200,20 @@ if __name__ == "__main__":
 
     res, _ = train_sgd("L2", "l2", {},
                        X_train_sc, y_train_r, X_test_sc, y_test_r,
-                       features, cv5, OUTPUT_DIR, MODEL_DIR)
+                       features, cv5, OUTPUT_DIR, MODEL_DIR,
+                       force_retune=FORCE_RETUNE)
     all_results.append(res)
 
     res, _ = train_sgd("L1", "l1", {},
                        X_train_sc, y_train_r, X_test_sc, y_test_r,
-                       features, cv5, OUTPUT_DIR, MODEL_DIR)
+                       features, cv5, OUTPUT_DIR, MODEL_DIR,
+                       force_retune=FORCE_RETUNE)
     all_results.append(res)
 
     res, _ = train_sgd("ElasticNet", "elasticnet", {"l1_ratio": 0.85},
                        X_train_sc, y_train_r, X_test_sc, y_test_r,
-                       features, cv5, OUTPUT_DIR, MODEL_DIR)
+                       features, cv5, OUTPUT_DIR, MODEL_DIR,
+                       force_retune=FORCE_RETUNE)
     all_results.append(res)
 
     # ── Save shared artifacts ─────────────────────────────────────────────────

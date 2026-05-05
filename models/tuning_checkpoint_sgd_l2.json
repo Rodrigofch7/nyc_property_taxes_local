@@ -1,0 +1,14 @@
+{
+  "best_score": 0.8110768589193267,
+  "best_params": {
+    "alpha": 0.005
+  },
+  "evaluated": [
+    {
+      "params": {
+        "alpha": 0.005
+      },
+      "score": 0.8110768589193267
+    }
+  ]
+}
