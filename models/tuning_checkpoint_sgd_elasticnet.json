@@ -1,184 +1,486 @@
 {
-  "best_score": 0.8164888960464987,
+  "best_score": 0.8162896353040623,
   "best_params": {
     "alpha": 1.0,
     "l1_ratio": 0.5
   },
+  "candidates": [
+    {
+      "alpha": 0.5,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.0005,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.05,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 1e-05,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 1e-05,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 5.0,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 100.0,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 10.0,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 0.1,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.05,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 0.0005,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 50.0,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 5.0,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 0.01,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 5.0,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 0.005,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 0.5,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 1.0,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 10.0,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.0005,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 0.001,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 0.1,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 1.0,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 1e-06,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 5.0,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 10.0,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 50.0,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 1.0,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 0.001,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 5.0,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.005,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 0.0005,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.01,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.001,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 0.5,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.001,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 1e-05,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 1e-05,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.1,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 10.0,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 1e-05,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 0.5,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 0.001,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.005,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 1.0,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.0001,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 1e-06,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 50.0,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 0.05,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 100.0,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 10.0,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.005,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.01,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 0.1,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 0.1,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.5,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 0.0001,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 100.0,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 1e-06,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.05,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.01,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 100.0,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 50.0,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 50.0,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 100.0,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 1e-06,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 1.0,
+      "l1_ratio": 0.9
+    },
+    {
+      "alpha": 0.0001,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.0001,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.0005,
+      "l1_ratio": 0.5
+    },
+    {
+      "alpha": 0.005,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.01,
+      "l1_ratio": 0.25
+    },
+    {
+      "alpha": 0.05,
+      "l1_ratio": 0.1
+    },
+    {
+      "alpha": 1e-06,
+      "l1_ratio": 0.75
+    },
+    {
+      "alpha": 0.0001,
+      "l1_ratio": 0.9
+    }
+  ],
   "evaluated": [
     {
       "params": {
-        "alpha": 0.1,
+        "alpha": 0.5,
         "l1_ratio": 0.25
       },
-      "score": 0.8138506049641995
+      "score": 0.8117503332830859
     },
     {
       "params": {
-        "alpha": 0.01,
+        "alpha": 0.0005,
+        "l1_ratio": 0.75
+      },
+      "score": 0.8068914863093293
+    },
+    {
+      "params": {
+        "alpha": 0.05,
+        "l1_ratio": 0.25
+      },
+      "score": 0.8141439692569661
+    },
+    {
+      "params": {
+        "alpha": 1e-05,
+        "l1_ratio": 0.75
+      },
+      "score": 0.7305919925715585
+    },
+    {
+      "params": {
+        "alpha": 1e-05,
         "l1_ratio": 0.5
       },
-      "score": 0.8133004883340819
+      "score": 0.7267410484677645
     },
     {
       "params": {
-        "alpha": 0.001,
+        "alpha": 5.0,
         "l1_ratio": 0.9
       },
-      "score": 0.7866089714517606
+      "score": 0.23633686206011828
     },
     {
       "params": {
-        "alpha": 0.1,
-        "l1_ratio": 0.9
+        "alpha": 100.0,
+        "l1_ratio": 0.25
       },
-      "score": 0.7901588017931311
+      "score": 0.2301608086457724
+    },
+    {
+      "params": {
+        "alpha": 10.0,
+        "l1_ratio": 0.1
+      },
+      "score": 0.2301608086457724
     },
     {
       "params": {
         "alpha": 0.1,
         "l1_ratio": 0.75
       },
-      "score": 0.8081096172573036
+      "score": 0.8103802884005956
     },
     {
       "params": {
-        "alpha": 0.001,
-        "l1_ratio": 0.25
+        "alpha": 0.05,
+        "l1_ratio": 0.9
       },
-      "score": 0.8064464841063617
+      "score": 0.8105075744175178
     },
     {
       "params": {
-        "alpha": 0.001,
+        "alpha": 0.0005,
         "l1_ratio": 0.1
       },
-      "score": 0.8031439141331524
+      "score": 0.8116857284592065
+    },
+    {
+      "params": {
+        "alpha": 50.0,
+        "l1_ratio": 0.1
+      },
+      "score": 0.2301608086457724
+    },
+    {
+      "params": {
+        "alpha": 5.0,
+        "l1_ratio": 0.5
+      },
+      "score": 0.2301608086457724
     },
     {
       "params": {
         "alpha": 0.01,
         "l1_ratio": 0.1
       },
-      "score": 0.8148676246103641
+      "score": 0.8151996924485385
+    },
+    {
+      "params": {
+        "alpha": 5.0,
+        "l1_ratio": 0.1
+      },
+      "score": 0.7977351458105989
+    },
+    {
+      "params": {
+        "alpha": 0.005,
+        "l1_ratio": 0.9
+      },
+      "score": 0.8057333315130512
+    },
+    {
+      "params": {
+        "alpha": 0.5,
+        "l1_ratio": 0.9
+      },
+      "score": 0.7880926936347346
+    },
+    {
+      "params": {
+        "alpha": 1.0,
+        "l1_ratio": 0.5
+      },
+      "score": 0.8162896353040623
+    },
+    {
+      "params": {
+        "alpha": 10.0,
+        "l1_ratio": 0.75
+      },
+      "score": 0.2301608086457724
+    },
+    {
+      "params": {
+        "alpha": 0.0005,
+        "l1_ratio": 0.9
+      },
+      "score": 0.7992205361793271
+    },
+    {
+      "params": {
+        "alpha": 0.001,
+        "l1_ratio": 0.1
+      },
+      "score": 0.8128713912658663
     },
     {
       "params": {
         "alpha": 0.1,
         "l1_ratio": 0.1
       },
-      "score": 0.8142773612909572
+      "score": 0.814037915898664
     },
     {
       "params": {
         "alpha": 1.0,
         "l1_ratio": 0.25
       },
-      "score": 0.8085004056465672
+      "score": 0.8085613961235671
     },
     {
       "params": {
-        "alpha": 0.01,
+        "alpha": 1e-06,
+        "l1_ratio": 0.5
+      },
+      "score": 0.7259872190411952
+    },
+    {
+      "params": {
+        "alpha": 5.0,
         "l1_ratio": 0.25
       },
-      "score": 0.8145003789193304
-    },
-    {
-      "params": {
-        "alpha": 0.1,
-        "l1_ratio": 0.5
-      },
-      "score": 0.8145150063188613
-    },
-    {
-      "params": {
-        "alpha": 0.0001,
-        "l1_ratio": 0.25
-      },
-      "score": 0.7520314279404159
-    },
-    {
-      "params": {
-        "alpha": 0.01,
-        "l1_ratio": 0.9
-      },
-      "score": 0.802245863856694
-    },
-    {
-      "params": {
-        "alpha": 1.0,
-        "l1_ratio": 0.5
-      },
-      "score": 0.8164888960464987
-    },
-    {
-      "params": {
-        "alpha": 0.01,
-        "l1_ratio": 0.75
-      },
-      "score": 0.8102201392710018
-    },
-    {
-      "params": {
-        "alpha": 0.0001,
-        "l1_ratio": 0.5
-      },
-      "score": 0.762804668719143
-    },
-    {
-      "params": {
-        "alpha": 1.0,
-        "l1_ratio": 0.75
-      },
-      "score": 0.8133067550768656
-    },
-    {
-      "params": {
-        "alpha": 0.0001,
-        "l1_ratio": 0.9
-      },
-      "score": 0.7622833903028453
-    },
-    {
-      "params": {
-        "alpha": 1.0,
-        "l1_ratio": 0.9
-      },
-      "score": 0.7645464120263344
-    },
-    {
-      "params": {
-        "alpha": 0.001,
-        "l1_ratio": 0.5
-      },
-      "score": 0.8065681021436909
-    },
-    {
-      "params": {
-        "alpha": 0.001,
-        "l1_ratio": 0.75
-      },
-      "score": 0.8023674525695664
-    },
-    {
-      "params": {
-        "alpha": 0.0001,
-        "l1_ratio": 0.1
-      },
-      "score": 0.7579422089594124
-    },
-    {
-      "params": {
-        "alpha": 0.0001,
-        "l1_ratio": 0.75
-      },
-      "score": 0.7641652431963821
-    },
-    {
-      "params": {
-        "alpha": 1.0,
-        "l1_ratio": 0.1
-      },
-      "score": 0.8074268381956378
+      "score": 0.2301608086457724
     }
   ]
 }

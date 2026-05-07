@@ -108,13 +108,13 @@ def clear_saved_params(model_key: str, path: str = DEFAULT_PARAMS_PATH) -> None:
 # ── Parameter grids ───────────────────────────────────────────────────────────
 PARAM_GRIDS: dict = {
     "sgd_l2": {
-        "alpha": [1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 1.0, 10.0],
+        "alpha": [1e-6, 1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0],
     },
     "sgd_l1": {
-        "alpha": [1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 1.0, 10.0],
+        "alpha": [1e-6, 1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0],
     },
     "sgd_elasticnet": {
-        "alpha":    [1e-4, 1e-3, 0.01, 0.1, 1.0],
+        "alpha":    [1e-6, 1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0],
         "l1_ratio": [0.1, 0.25, 0.5, 0.75, 0.9],
     },
     # Reduced grid — each combo takes ~5-10 min on 300k rows
@@ -340,7 +340,7 @@ def tune_sgd(
     *,
     model_key: str | None = None,
     params_path: str = DEFAULT_PARAMS_PATH,
-    cv: int = 5,
+    cv: int = 10,
     scoring: str = "f1_macro",
     force_retune: bool = False,
 ):
@@ -373,7 +373,7 @@ def tune_generic(
     model_key: str,
     *,
     n_iter: int = 20,
-    cv: int = 3,
+    cv: int = 5,
     scoring: str = "f1_macro",
     random_state: int = 42,
     force_retune: bool = False,

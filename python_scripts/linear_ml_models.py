@@ -41,7 +41,7 @@ LINEAR_SUBSAMPLE = 100_000
 # False   → use cached params, skip CV (normal runs)
 # True    → wipe cache, run fresh CV, save results regardless
 # "safe"  → run fresh CV, only update cache if new params are better
-FORCE_RETUNE = False
+FORCE_RETUNE = "safe"
 
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ def evaluate(name, model, X_test, y_test, X_train, y_train, subsample_n):
     X_cv, y_cv = subsample(X_train, y_train, subsample_n, seed=99)
     cv_scores  = cross_val_score(
         model, X_cv, y_cv,
-        cv=StratifiedKFold(5, shuffle=True, random_state=99),
+        cv=StratifiedKFold(10, shuffle=True, random_state=99),
         scoring="f1_macro", n_jobs=-1,
     )
     print(f"  CV F1 Macro: {cv_scores.mean():.4f} ± {cv_scores.std():.4f}")
@@ -137,7 +137,7 @@ def train_sgd(name, penalty, extra_params,
         random_state=42,
         early_stopping=True,
         validation_fraction=0.1,
-        n_iter_no_change=10,
+        n_iter_no_change=30,
         **extra_params,
     )
 
