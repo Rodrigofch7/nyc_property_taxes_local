@@ -55,7 +55,7 @@ CV_FOLDS    = 5
 # False   → use cached params, skip CV (normal runs)
 # True    → wipe cache, run fresh CV, save results regardless
 # "safe"  → run fresh CV, only update cache if new params are better
-FORCE_RETUNE = "safe"
+FORCE_RETUNE = False
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 def evaluate(model, X_test, y_test):
