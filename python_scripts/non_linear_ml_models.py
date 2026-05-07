@@ -13,6 +13,9 @@ Features:
 Imports shared logic from:
   feature_engineering.py   – load_data, engineer_features, prepare_xy, subsample
   hyperparameter_tuning.py – tune_lgbm
+
+To run:
+    uv run python_scripts/non_linear_ml_models.py  
 """
 
 import os
@@ -37,22 +40,22 @@ DATA_PATH  = "/home/rodrigofrancachaves/project-nyc_property_taxes/data/processe
 MODEL_DIR  = "/home/rodrigofrancachaves/project-nyc_property_taxes/models"
 OUTPUT_DIR = "/home/rodrigofrancachaves/project-nyc_property_taxes/outputs"
 os.makedirs(MODEL_DIR,  exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)   
 
 SUBSAMPLE_SIZE = 300_000
 
 # ── Config ────────────────────────────────────────────────────────────────────
 # n_iter: number of hyperparameter combinations to try
-# Each combo = cv fits of LightGBM on 300k rows
+# Each combo = cv fits of LightGBM on 300k rows  
 # At ~5-8 min per combo: 20 combos ≈ 2-3 hours
 N_ITER      = 20
-CV_FOLDS    = 3
+CV_FOLDS    = 5
 
 # Options:
 # False   → use cached params, skip CV (normal runs)
 # True    → wipe cache, run fresh CV, save results regardless
 # "safe"  → run fresh CV, only update cache if new params are better
-FORCE_RETUNE = False
+FORCE_RETUNE = "safe"
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 def evaluate(model, X_test, y_test):

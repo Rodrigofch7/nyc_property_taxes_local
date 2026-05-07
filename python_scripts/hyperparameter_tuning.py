@@ -8,6 +8,10 @@ Key improvement over sklearn RandomizedSearchCV:
   - Saves best params after EVERY iteration → safe to Ctrl+C and resume
   - On resume: skips already-evaluated combinations, loads best so far
   - Checkpoint file: models/tuning_checkpoint_<model_key>.json
+
+Fix (2025): candidate list is now stored IN the checkpoint on first run,
+so that resuming always works from the same fixed set of combinations
+instead of re-shuffling and diverging.
 """
 
 import json
@@ -37,7 +41,7 @@ def _checkpoint_path(model_key: str) -> str:
 
 
 def _load_checkpoint(model_key: str) -> dict:
-    """Load tuning checkpoint: {best_score, best_params, evaluated: [...]}"""
+    """Load tuning checkpoint: {best_score, best_params, candidates, evaluated: [...]}"""
     path = _checkpoint_path(model_key)
     try:
         with open(path) as f:
@@ -47,7 +51,7 @@ def _load_checkpoint(model_key: str) -> dict:
         print(f"  Best so far: F1={ckpt['best_score']:.4f} | {ckpt['best_params']}")
         return ckpt
     except FileNotFoundError:
-        return {"best_score": -1.0, "best_params": {}, "evaluated": []}
+        return {"best_score": -1.0, "best_params": {}, "candidates": [], "evaluated": []}
 
 
 def _save_checkpoint(model_key: str, ckpt: dict) -> None:
@@ -147,6 +151,7 @@ def tune_with_checkpoints(
       - tqdm progress bar showing iteration, score, elapsed time
       - checkpoint saved after EVERY iteration
       - safe to Ctrl+C and resume — already-evaluated combos are skipped
+      - candidate list stored in checkpoint so resume always uses the same combos
       - best params saved to best_params.json when done
 
     Returns the best params dict.
@@ -158,15 +163,21 @@ def tune_with_checkpoints(
     # Load checkpoint (picks up where we left off)
     ckpt = _load_checkpoint(model_key)
 
-    # Build shuffled candidate list
-    keys       = list(param_grid.keys())
-    values     = list(param_grid.values())
-    all_combos = [dict(zip(keys, v)) for v in itertools.product(*values)]
-    rng        = random.Random(random_state)
-    rng.shuffle(all_combos)
-    candidates = all_combos[:n_iter]
+    # ── FIX: candidate list is generated ONCE and stored in the checkpoint ──
+    # On first run: build, shuffle, save.
+    # On resume: load from checkpoint — same order guaranteed.
+    if not ckpt.get("candidates"):
+        keys       = list(param_grid.keys())
+        values     = list(param_grid.values())
+        all_combos = [dict(zip(keys, v)) for v in itertools.product(*values)]
+        rng        = random.Random(random_state)
+        rng.shuffle(all_combos)
+        ckpt["candidates"] = all_combos[:n_iter]
+        _save_checkpoint(model_key, ckpt)
 
-    # Skip already evaluated combinations
+    candidates = ckpt["candidates"]
+
+    # Skip already evaluated combinations (matched by stable candidate list)
     evaluated_strs = {json.dumps(e["params"], sort_keys=True) for e in ckpt["evaluated"]}
     remaining      = [c for c in candidates if json.dumps(c, sort_keys=True) not in evaluated_strs]
 
@@ -252,10 +263,20 @@ def tune_lgbm(
       True    → wipe cache, run CV, save whatever is best (even if worse)
       "safe"  → run CV, only overwrite cache if new result is better
     """
-    # Load existing best for comparison later
-    existing = load_best_params(model_key, path=params_path)
+    # ── FIX: always initialise `existing` so it is defined on every path ──
+    existing = None
 
-    if force_retune is False and existing:
+    if force_retune is False:
+        existing = load_best_params(model_key, path=params_path)
+
+        # Also check checkpoint if no saved params yet
+        if not existing:
+            ckpt = _load_checkpoint(model_key)
+            if len(ckpt.get("evaluated", [])) >= n_iter:
+                existing = ckpt["best_params"]
+                save_best_params(model_key, existing, path=params_path)  # persist it
+
+    if existing:
         print(f"  Skipping search — loading saved params for '{model_key}'")
         estimator.set_params(**existing)
         estimator.fit(X_train, y_train)
@@ -265,7 +286,6 @@ def tune_lgbm(
         # Wipe cache and start fresh
         _clear_checkpoint(model_key)
         clear_saved_params(model_key)
-        existing = None
 
     # force_retune is True or "safe" — run the search
     grid = param_grid or PARAM_GRIDS["lgbm"]
