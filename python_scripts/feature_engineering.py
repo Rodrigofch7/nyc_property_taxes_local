@@ -15,6 +15,163 @@ from sklearn.preprocessing import LabelEncoder
 
 HISTORICAL_YEARS = [2020, 2021, 2022, 2023, 2024, 2025]
 
+DEFAULT_SALES_PATH = (
+    "/home/rodrigofrancachaves/project-nyc_property_taxes/data/sales_clean.parquet"
+)
+
+
+# ── Sales data loader & feature builder ───────────────────────────────────────
+def load_sales_features(
+    df: pd.DataFrame,
+    sales_path: str = DEFAULT_SALES_PATH,
+    cutoff_year: int = 2025,       # only use sales strictly before FY2026
+    min_price: int = 50_000,       # drop likely non-arm's-length transfers
+) -> pd.DataFrame:
+    """
+    Join sales_clean.parquet onto df (which must have a BBL column) and return
+    a DataFrame of per-property sale features indexed like df.
+
+    Features produced
+    -----------------
+    HAS_RECENT_SALE         : 1 if any qualifying sale exists, else 0
+    LAST_SALE_PRICE         : most recent qualifying sale price (0 if none)
+    LAST_SALE_YEAR          : year of most recent sale (0 if none)
+    YEARS_SINCE_SALE        : 2026 - LAST_SALE_YEAR  (26 if never sold)
+    SALE_PRICE_PER_SQFT     : LAST_SALE_PRICE / GROSS_SQFT (0 if missing)
+    SALE_TO_ASSESS_RATIO    : LAST_SALE_PRICE / FINACTTOT_FY2025 (0 if missing)
+    LOG_LAST_SALE_PRICE     : log1p of LAST_SALE_PRICE
+    N_SALES                 : number of qualifying sales in the window
+    MAX_SALE_PRICE          : highest qualifying sale price
+    MEDIAN_SALE_PRICE       : median qualifying sale price
+    SALE_PRICE_TREND        : slope of sale prices over time (0 if <2 sales)
+    ZIP_MEDIAN_SALE_PRICE   : median sale price per sqft in the same zip
+    ZIP_SALE_VOLUME         : number of sales in the same zip (market activity)
+    SALE_VS_ZIP_MEDIAN      : SALE_PRICE_PER_SQFT / ZIP_MEDIAN_SALE_PRICE
+    """
+    import os
+    if not os.path.exists(sales_path):
+        print(f"  WARNING: sales file not found at {sales_path} — skipping sales features")
+        return pd.DataFrame(index=df.index)
+
+    print(f"  Loading sales data from {sales_path}...")
+    sales = pd.read_parquet(sales_path)
+
+    # Filter to arm's-length, pre-cutoff sales only
+    sales = sales[
+        (sales["SALE PRICE"] >= min_price) &
+        (sales["SALE_YEAR"]  <= cutoff_year)
+    ].copy()
+
+    # Normalise BBL to string for joining
+    sales["BBL"] = sales["BBL"].astype(str).str.strip()
+    df_bbl       = df["BBL"].astype(str).str.strip() if "BBL" in df.columns else None
+
+    if df_bbl is None:
+        print("  WARNING: BBL column not found in df — skipping sales features")
+        return pd.DataFrame(index=df.index)
+
+    print(f"  Sales after filtering: {len(sales):,}")
+
+    # ── Per-property aggregates ───────────────────────────────────────────────
+    grp = sales.groupby("BBL")
+
+    agg = grp["SALE PRICE"].agg(
+        N_SALES        = "count",
+        LAST_SALE_PRICE= "last",     # files are sorted by year already
+        MAX_SALE_PRICE = "max",
+        MEDIAN_SALE_PRICE = "median",
+    ).reset_index()
+
+    last_year = grp["SALE_YEAR"].last().reset_index().rename(
+        columns={"SALE_YEAR": "LAST_SALE_YEAR"}
+    )
+    agg = agg.merge(last_year, on="BBL", how="left")
+
+    # Sale price trend: OLS slope of price over year for properties with ≥2 sales
+    def price_slope(sub):
+        if len(sub) < 2:
+            return 0.0
+        x = sub["SALE_YEAR"].values.astype(float)
+        y = sub["SALE PRICE"].values.astype(float)
+        x_c = x - x.mean()
+        denom = x_c @ x_c
+        return float((x_c @ y) / denom) if denom > 0 else 0.0
+
+    slopes = sales.groupby("BBL").apply(price_slope).reset_index()
+    slopes.columns = ["BBL", "SALE_PRICE_TREND"]
+    agg = agg.merge(slopes, on="BBL", how="left")
+
+    # ── ZIP-level aggregates (market context) ─────────────────────────────────
+    # Use gross sqft from sales file when available
+    sales["PRICE_PER_SQFT_RAW"] = (
+        sales["SALE PRICE"] /
+        pd.to_numeric(sales["GROSS SQUARE FEET"], errors="coerce").clip(lower=1)
+    )
+    # Only use rows where sqft is plausible
+    sales_with_sqft = sales[
+        pd.to_numeric(sales["GROSS SQUARE FEET"], errors="coerce").fillna(0) > 100
+    ]
+
+    if "ZIP CODE" in sales.columns:
+        zip_stats = (
+            sales_with_sqft.groupby("ZIP CODE")["PRICE_PER_SQFT_RAW"]
+            .agg(ZIP_MEDIAN_SALE_PRICE="median", ZIP_SALE_VOLUME="count")
+            .reset_index()
+            .rename(columns={"ZIP CODE": "ZIP_CODE_SALES"})
+        )
+    else:
+        zip_stats = None
+
+    # ── Join onto df ──────────────────────────────────────────────────────────
+    result = pd.DataFrame({"BBL": df_bbl.values}, index=df.index)
+    result = result.merge(agg, on="BBL", how="left")
+
+    # Derive clean features
+    feat = pd.DataFrame(index=df.index)
+    feat["HAS_RECENT_SALE"]   = result["N_SALES"].notna().astype(int)
+    feat["N_SALES"]           = result["N_SALES"].fillna(0).astype(int)
+    feat["LAST_SALE_PRICE"]   = result["LAST_SALE_PRICE"].fillna(0)
+    feat["LOG_LAST_SALE_PRICE"] = np.log1p(feat["LAST_SALE_PRICE"])
+    feat["LAST_SALE_YEAR"]    = result["LAST_SALE_YEAR"].fillna(0).astype(int)
+    feat["YEARS_SINCE_SALE"]  = np.where(
+        feat["LAST_SALE_YEAR"] > 0,
+        2026 - feat["LAST_SALE_YEAR"],
+        26,                          # sentinel: never sold in our window
+    )
+    feat["MAX_SALE_PRICE"]    = result["MAX_SALE_PRICE"].fillna(0)
+    feat["MEDIAN_SALE_PRICE"] = result["MEDIAN_SALE_PRICE"].fillna(0)
+    feat["SALE_PRICE_TREND"]  = result["SALE_PRICE_TREND"].fillna(0)
+
+    # Price per sqft — use df's GROSS_SQFT for consistency
+    gross_sqft = pd.to_numeric(df["GROSS_SQFT"], errors="coerce").fillna(0).clip(lower=1)
+    feat["SALE_PRICE_PER_SQFT"] = (feat["LAST_SALE_PRICE"] / gross_sqft).clip(upper=50_000)
+
+    # Sale-to-assessment ratio — most direct overvaluation signal
+    if "FINACTTOT_FY2025" in df.columns:
+        assess = pd.to_numeric(df["FINACTTOT_FY2025"], errors="coerce").fillna(0).clip(lower=1)
+        feat["SALE_TO_ASSESS_RATIO"] = (
+            feat["LAST_SALE_PRICE"] / assess
+        ).clip(0, 50)
+        feat["LOG_SALE_TO_ASSESS"] = np.log1p(feat["SALE_TO_ASSESS_RATIO"])
+
+    # ZIP-level join
+    if zip_stats is not None and "ZIP_CODE" in df.columns:
+        zip_col = df["ZIP_CODE"].astype(str).str.strip()
+        zip_map_median = zip_stats.set_index("ZIP_CODE_SALES")["ZIP_MEDIAN_SALE_PRICE"]
+        zip_map_volume = zip_stats.set_index("ZIP_CODE_SALES")["ZIP_SALE_VOLUME"]
+        feat["ZIP_MEDIAN_SALE_PRICE"] = zip_col.map(zip_map_median).fillna(0)
+        feat["ZIP_SALE_VOLUME"]       = zip_col.map(zip_map_volume).fillna(0)
+        feat["SALE_VS_ZIP_MEDIAN"] = (
+            feat["SALE_PRICE_PER_SQFT"] /
+            feat["ZIP_MEDIAN_SALE_PRICE"].clip(lower=1)
+        ).clip(0, 10)
+        # For unsold properties: still give them neighborhood context
+        feat.loc[feat["HAS_RECENT_SALE"] == 0, "SALE_VS_ZIP_MEDIAN"] = np.nan
+
+    matched = feat["HAS_RECENT_SALE"].sum()
+    print(f"  BBL match rate: {matched:,} / {len(df):,} ({matched/len(df)*100:.1f}%)")
+    return feat
+
 
 # ── Load ──────────────────────────────────────────────────────────────────────
 def load_data(path: str, drop_unknowns: bool = True) -> pd.DataFrame:
@@ -71,9 +228,16 @@ def project_next_year(
 def engineer_features(
     df: pd.DataFrame,
     historical_years: list[int] = HISTORICAL_YEARS,
+    sales_path: str | None = DEFAULT_SALES_PATH,
 ) -> tuple[pd.DataFrame, list[str], dict]:
     """
     Build all engineered features.
+
+    Parameters
+    ----------
+    df              : property DataFrame with BBL column for sales join
+    historical_years: fiscal years to build time-series features over
+    sales_path      : path to sales_clean.parquet; pass None to skip
 
     Returns
     -------
@@ -122,6 +286,39 @@ def engineer_features(
     mkt_to_assess                    = (df["FINMKTTOT_FY2025"].fillna(0)  / df["FINACTTOT_FY2025"].clip(lower=1)).clip(0, 20)
     new_cols["MKT_TO_ASSESS"]        = mkt_to_assess
     new_cols["LOG_MKT_TO_ASSESS"]    = np.log1p(mkt_to_assess)
+
+    # ── ZIP_CODE neighborhood aggregates (replaces raw label encoding signal) ──
+    # Computed on the full df before train/test split — use only FY2025 values
+    # to avoid leakage from the target year
+    if "ZIP_CODE" in df.columns and "FINACTTOT_FY2025" in df.columns:
+        zip_assess = df.groupby("ZIP_CODE")["FINACTTOT_FY2025"].agg(["mean", "median", "std"])
+        zip_assess.columns = ["ZIP_MEAN_ASSESS", "ZIP_MEDIAN_ASSESS", "ZIP_ASSESS_STD"]
+        zip_assess["ZIP_ASSESS_STD"] = zip_assess["ZIP_ASSESS_STD"].fillna(0)
+
+        new_cols["ZIP_MEAN_ASSESS"]   = df["ZIP_CODE"].map(zip_assess["ZIP_MEAN_ASSESS"])
+        new_cols["ZIP_MEDIAN_ASSESS"] = df["ZIP_CODE"].map(zip_assess["ZIP_MEDIAN_ASSESS"])
+        new_cols["ZIP_ASSESS_STD"]    = df["ZIP_CODE"].map(zip_assess["ZIP_ASSESS_STD"])
+
+        # How does this property's assessment compare to its zip's median?
+        # >1 = assessed above neighborhood median → overvaluation signal
+        new_cols["ASSESS_VS_ZIP_MEDIAN"] = (
+            df["FINACTTOT_FY2025"].fillna(0) /
+            df["ZIP_CODE"].map(zip_assess["ZIP_MEDIAN_ASSESS"]).clip(lower=1)
+        ).clip(0, 10)
+
+    # ── BLDG_CLASS aggregates (building class drives NYC tax treatment) ────────
+    if "BLDG_CLASS" in df.columns and "FINACTTOT_FY2025" in df.columns:
+        cls_assess = df.groupby("BLDG_CLASS")["FINACTTOT_FY2025"].agg(["mean", "median"])
+        cls_assess.columns = ["BLDG_CLASS_MEAN_ASSESS", "BLDG_CLASS_MEDIAN_ASSESS"]
+
+        new_cols["BLDG_CLASS_MEAN_ASSESS"]   = df["BLDG_CLASS"].map(cls_assess["BLDG_CLASS_MEAN_ASSESS"])
+        new_cols["BLDG_CLASS_MEDIAN_ASSESS"] = df["BLDG_CLASS"].map(cls_assess["BLDG_CLASS_MEDIAN_ASSESS"])
+
+        # How does this property compare to others of the same building class?
+        new_cols["ASSESS_VS_BLDG_CLASS_MEDIAN"] = (
+            df["FINACTTOT_FY2025"].fillna(0) /
+            df["BLDG_CLASS"].map(cls_assess["BLDG_CLASS_MEDIAN_ASSESS"]).clip(lower=1)
+        ).clip(0, 10)
 
     # ── Historical column lists ───────────────────────────────────────────────
     finacttot_cols  = [c for c in [f"FINACTTOT_FY{y}"  for y in historical_years] if c in df.columns]
@@ -302,6 +499,15 @@ def engineer_features(
             pd.Series(new_cols["ASSESS_TREND"], index=df.index)
         ).clip(-10, 10)
 
+    # ── Interaction: building age × assessment intensity ─────────────────────
+    # Older buildings in high-assessment areas behave differently from
+    # older buildings in low-assessment areas — captures this joint effect
+    if "BUILDING_AGE" in new_cols and "ASSESS_PER_SQFT" in new_cols:
+        new_cols["AGE_X_ASSESS_PER_SQFT"] = (
+            pd.Series(new_cols["BUILDING_AGE"],  index=df.index) *
+            pd.Series(new_cols["ASSESS_PER_SQFT"], index=df.index)
+        ).clip(upper=1e6)
+
     # ── Categorical encoding ──────────────────────────────────────────────────
     categorical_cols = ["BORO", "BLDG_CLASS", "ZIP_CODE", "ZONING"]
     le_dict: dict = {}
@@ -321,6 +527,15 @@ def engineer_features(
         and any(x in c for x in ["overvalued", "undervalued", "fairly_valued"])
     ]
 
+    # ── Sales data join ───────────────────────────────────────────────────────
+    sales_feat_cols: list[str] = []
+    if sales_path is not None:
+        sales_feats = load_sales_features(df, sales_path=sales_path)
+        if not sales_feats.empty:
+            for col in sales_feats.columns:
+                new_cols[col] = sales_feats[col].values
+                sales_feat_cols.append(col)
+
     # ── Concat all new columns at once (avoids DataFrame fragmentation) ───────
     new_df = pd.DataFrame(new_cols, index=df.index)
     df     = pd.concat([df, new_df], axis=1)
@@ -332,9 +547,17 @@ def engineer_features(
     for name in [
         "CONSISTENT_OVERVALUED", "CONSISTENT_UNDERVALUED", "CONSISTENT_FAIR",
         "DOMINANT_CLASS", "ASSESS_AT_CAP", "MKT_TREND", "MKT_VS_ASSESS_TREND_SPREAD",
+        # ZIP neighborhood aggregates
+        "ZIP_MEAN_ASSESS", "ZIP_MEDIAN_ASSESS", "ZIP_ASSESS_STD", "ASSESS_VS_ZIP_MEDIAN",
+        # Building class aggregates
+        "BLDG_CLASS_MEAN_ASSESS", "BLDG_CLASS_MEDIAN_ASSESS", "ASSESS_VS_BLDG_CLASS_MEDIAN",
+        # Interaction
+        "AGE_X_ASSESS_PER_SQFT",
     ]:
         if name in df.columns:
             scalar_extras.append(name)
+    # Sales features (dynamic — whatever load_sales_features produced)
+    sales_feat_cols = [c for c in sales_feat_cols if c in df.columns]
 
     features = (
         encoded_cat_cols +
@@ -367,7 +590,8 @@ def engineer_features(
         cumul_mkt_cols +               # cumulative market growth from 2020
         accel_cols +                   # assessment acceleration
         psqft_cols +                   # assessed per sqft per year
-        land_ratio_cols                # land/total ratio per year
+        land_ratio_cols +              # land/total ratio per year
+        sales_feat_cols                # actual transaction price features
     )
     features = [f for f in features if f in df.columns]
 
