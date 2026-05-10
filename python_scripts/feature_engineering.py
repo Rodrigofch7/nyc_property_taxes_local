@@ -87,19 +87,26 @@ def load_sales_features(
     )
     agg = agg.merge(last_year, on="BBL", how="left")
 
-    # Sale price trend: OLS slope of price over year for properties with ≥2 sales
-    def price_slope(sub):
-        if len(sub) < 2:
-            return 0.0
-        x = sub["SALE_YEAR"].values.astype(float)
-        y = sub["SALE PRICE"].values.astype(float)
-        x_c = x - x.mean()
-        denom = x_c @ x_c
-        return float((x_c @ y) / denom) if denom > 0 else 0.0
-
-    slopes = sales.groupby("BBL").apply(price_slope).reset_index()
-    slopes.columns = ["BBL", "SALE_PRICE_TREND"]
-    agg = agg.merge(slopes, on="BBL", how="left")
+    # Sale price trend: vectorized OLS slope (avoids memory-hungry groupby.apply)
+    # For each BBL: slope = cov(year, price) / var(year)
+    s = sales[["BBL", "SALE_YEAR", "SALE PRICE"]].copy()
+    s["SALE_YEAR"]   = s["SALE_YEAR"].astype(float)
+    s["SALE PRICE"]  = s["SALE PRICE"].astype(float)
+    grp_s            = s.groupby("BBL")
+    mean_year  = grp_s["SALE_YEAR"].transform("mean")
+    mean_price = grp_s["SALE PRICE"].transform("mean")
+    s["xc"] = s["SALE_YEAR"]  - mean_year
+    s["yc"] = s["SALE PRICE"] - mean_price
+    numer  = s.groupby("BBL").apply(lambda g: (g["xc"] * g["yc"]).sum())
+    denom  = s.groupby("BBL").apply(lambda g: (g["xc"] ** 2).sum())
+    slopes_s = (numer / denom.replace(0, np.nan)).fillna(0).reset_index()
+    slopes_s.columns = ["BBL", "SALE_PRICE_TREND"]
+    # Zero out BBLs with only one sale (slope is meaningless)
+    single_sale = grp_s["SALE_YEAR"].count()[grp_s["SALE_YEAR"].count() < 2].index
+    slopes_s.loc[slopes_s["BBL"].isin(single_sale), "SALE_PRICE_TREND"] = 0.0
+    agg = agg.merge(slopes_s, on="BBL", how="left")
+    del s, numer, denom, slopes_s, single_sale
+    gc.collect()
 
     # ── ZIP-level aggregates (market context) ─────────────────────────────────
     # Use gross sqft from sales file when available

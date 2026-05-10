@@ -19,6 +19,8 @@ import numpy as np
 from sklearn.linear_model import SGDClassifier
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import (
     accuracy_score, f1_score,
     classification_report, confusion_matrix, ConfusionMatrixDisplay,
@@ -36,6 +38,11 @@ os.makedirs(MODEL_DIR,  exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 LINEAR_SUBSAMPLE = 100_000
+
+# Number of PCA components for SGD pipeline.
+# Retains ~95% of variance for typical 120-144 feature sets while removing
+# multicollinearity that hurts linear models. Adjust if feature count changes.
+PCA_COMPONENTS = 60
 
 # Options:
 # False   → use cached params, skip CV (normal runs)
@@ -79,23 +86,55 @@ def evaluate(name, model, X_test, y_test, X_train, y_train, subsample_n):
 
 # ── Plot helpers ──────────────────────────────────────────────────────────────
 def plot_coefficients(model, features, name, output_dir, top_n=20):
-    classes = model.classes_
-    coef_df = pd.DataFrame(model.coef_, index=classes, columns=features)
+    """
+    Plot feature importance for SGD models.
+
+    If model is a Pipeline with PCA, coefficients live in PCA space and can't
+    be mapped back to original features directly. Instead we plot the top
+    original features by their contribution to the most important PCA components
+    (|coef| weighted by explained variance).
+    """
+    slug = name.lower().replace(" ", "_")
+
+    # ── Pipeline with PCA: back-project coefs into original feature space ─────
+    if isinstance(model, Pipeline):
+        pca = model.named_steps["pca"]
+        sgd = model.named_steps["sgd"]
+        classes = sgd.classes_
+
+        # coef shape: (n_classes, n_components)
+        # components_ shape: (n_components, n_features)
+        # projected: (n_classes, n_features) — approximate original-space coefs
+        projected = sgd.coef_ @ pca.components_  # (n_classes, n_features)
+        coef_df   = pd.DataFrame(projected, index=classes, columns=features)
+
+        # Also save explained variance info
+        ev = pd.Series(pca.explained_variance_ratio_, name="explained_variance_ratio")
+        ev.index.name = "component"
+        ev_path = os.path.join(output_dir, f"{slug}_pca_explained_variance.csv")
+        ev.to_csv(ev_path)
+        print(f"  PCA explained variance saved: {ev_path}")
+        print(f"  PCA cumulative variance: {pca.explained_variance_ratio_.cumsum()[-1]:.3f}")
+    else:
+        # Regular SGD without PCA
+        sgd     = model
+        classes = model.classes_
+        coef_df = pd.DataFrame(model.coef_, index=classes, columns=features)
+
     fig, axes = plt.subplots(1, len(classes), figsize=(6 * len(classes), 8))
     if len(classes) == 1:
         axes = [axes]
     for ax, cls in zip(axes, classes):
-        top  = coef_df.loc[cls].abs().nlargest(top_n).index
-        vals = coef_df.loc[cls][top].sort_values()
+        top    = coef_df.loc[cls].abs().nlargest(top_n).index
+        vals   = coef_df.loc[cls][top].sort_values()
         colors = ["#d73027" if v > 0 else "#4575b4" for v in vals]
         vals.plot(kind="barh", ax=ax, color=colors)
-        ax.set_title(f"Top {top_n} coefficients\nClass: {cls}", fontsize=12)
-        ax.set_xlabel("Coefficient value")
+        ax.set_title(f"Top {top_n} features\nClass: {cls}", fontsize=12)
+        ax.set_xlabel("Back-projected coefficient" if isinstance(model, Pipeline) else "Coefficient value")
         ax.axvline(0, color="black", linewidth=0.8)
-    plt.suptitle(f"{name} — Coefficients by Class", fontsize=13)
+    plt.suptitle(f"{name} — Feature Importance (via PCA back-projection)", fontsize=13)
     plt.tight_layout()
-    slug = name.lower().replace(" ", "_")
-    out  = os.path.join(output_dir, f"{slug}_coefficients.png")
+    out = os.path.join(output_dir, f"{slug}_coefficients.png")
     plt.savefig(out, dpi=150, bbox_inches="tight")
     plt.close()
     coef_df.T.reset_index().rename(columns={"index": "feature"}).to_csv(
@@ -128,7 +167,11 @@ def train_sgd(name, penalty, extra_params,
 
     X_sub, y_sub = subsample(X_train_sc, y_train_r, LINEAR_SUBSAMPLE)
 
-    base_estimator = SGDClassifier(
+    # Build Pipeline: PCA → SGD
+    # PCA is fitted on the training subsample inside tune_sgd via cross_val_score,
+    # so there is no leakage — each CV fold fits PCA on its own train split.
+    # SGD params are prefixed with "sgd__" when passed through the pipeline.
+    sgd_estimator = SGDClassifier(
         loss="modified_huber",
         penalty=penalty,
         class_weight="balanced",
@@ -140,20 +183,33 @@ def train_sgd(name, penalty, extra_params,
         n_iter_no_change=30,
         **extra_params,
     )
+    base_estimator = Pipeline([
+        ("pca", PCA(n_components=PCA_COMPONENTS, random_state=42)),
+        ("sgd", sgd_estimator),
+    ])
 
-    result = tune_sgd(base_estimator, X_sub, y_sub, penalty=penalty, cv=5,
-                      model_key=f"sgd_{penalty.lower()}", force_retune=force_retune)
+    # tune_sgd expects plain alpha/l1_ratio params; wrap grid keys with "sgd__"
+    from hyperparameter_tuning import PARAM_GRIDS, tune_with_checkpoints, load_best_params, save_best_params
+    grid_key   = f"sgd_{penalty.lower()}" if f"sgd_{penalty.lower()}" in PARAM_GRIDS else "sgd_l2"
+    raw_grid   = PARAM_GRIDS[grid_key]
+    pipeline_grid = {f"sgd__{k}": v for k, v in raw_grid.items()}
+
+    model_key = f"sgd_{penalty.lower()}_pca"
+    result = tune_with_checkpoints(
+        base_estimator, pipeline_grid, X_sub, y_sub,
+        model_key=model_key, cv=5, scoring="f1_macro",
+        n_iter=len(list(__import__("itertools").product(*raw_grid.values()))),
+        force_retune=force_retune,
+    )
+    # tune_with_checkpoints returns best_params dict; set and fit final pipeline
+    base_estimator.set_params(**result)
+    base_estimator.fit(X_sub, y_sub)
+    result = base_estimator
     del X_sub, y_sub
     gc.collect()
 
-    # tune_sgd returns a fitted estimator when loading from cache,
-    # or a search object when CV was run
-    if hasattr(result, "best_estimator_"):
-        best_model  = result.best_estimator_
-        best_params = result.best_params_
-    else:
-        best_model  = result
-        best_params = result.get_params()
+    best_model  = result
+    best_params = result.get_params()
 
     res, cm = evaluate(
         f"SGD {name}", best_model,

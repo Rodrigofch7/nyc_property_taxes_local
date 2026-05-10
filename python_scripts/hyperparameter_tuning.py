@@ -117,17 +117,24 @@ PARAM_GRIDS: dict = {
         "alpha":    [1e-6, 1e-5, 1e-4, 5e-4, 1e-3, 5e-3, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0],
         "l1_ratio": [0.1, 0.25, 0.5, 0.75, 0.9],
     },
-    # Reduced grid — each combo takes ~5-10 min on 300k rows
-    # 20 iterations × 3-fold CV = 60 fits total
+    # Refined grid based on tuning_checkpoint_lgbm.json (20 evaluated runs)
+    # Key findings:
+    #   - num_leaves=255 dominates top runs → added 511 to probe upper bound
+    #   - n_estimators=800 consistently wins → dropped 300, added 1200
+    #   - learning_rate=0.1 is the sweet spot → kept 0.05 as floor, dropped 0.2
+    #   - colsample_bytree=0.8 wins every top run → dropped 1.0
+    #   - reg_alpha=0.0–0.5 best; 1.0 rarely wins → dropped 1.0
+    #   - reg_lambda=0.5–1.0 best; 0.0 underperforms → dropped 0.0
+    # 20 iterations × 5-fold CV = 100 fits total
     "lgbm": {
-        "n_estimators":      [300, 500, 800],
-        "learning_rate":     [0.05, 0.1, 0.2],
-        "num_leaves":        [63, 127, 255],
+        "n_estimators":      [500, 800, 1200],
+        "learning_rate":     [0.05, 0.1],
+        "num_leaves":        [127, 255, 511],
         "min_child_samples": [20, 50],
         "subsample":         [0.8, 1.0],
-        "colsample_bytree":  [0.8, 1.0],
-        "reg_alpha":         [0.0, 0.5, 1.0],
-        "reg_lambda":        [0.0, 0.5, 1.0],
+        "colsample_bytree":  [0.8],
+        "reg_alpha":         [0.0, 0.5],
+        "reg_lambda":        [0.5, 1.0],
     },
 }
 
@@ -252,7 +259,7 @@ def tune_lgbm(
     model_key: str = "lgbm",
     params_path: str = DEFAULT_PARAMS_PATH,
     n_iter: int = 20,
-    cv: int = 3,
+    cv: int = 5,
     scoring: str = "f1_macro",
     random_state: int = 42,
     force_retune: bool | str = False,  # False | True | "safe"
@@ -282,19 +289,16 @@ def tune_lgbm(
         estimator.fit(X_train, y_train)
         return estimator
 
-    if force_retune is True:
-        # Wipe cache and start fresh
-        _clear_checkpoint(model_key)
-        clear_saved_params(model_key)
-
     # force_retune is True or "safe" — run the search
+    # Note: tune_with_checkpoints handles clearing if force_retune=True,
+    # so we don't clear here to avoid doing it twice.
     grid = param_grid or PARAM_GRIDS["lgbm"]
     best_params = tune_with_checkpoints(
         estimator, grid, X_train, y_train,
         model_key=model_key,
         n_iter=n_iter, cv=cv, scoring=scoring,
         random_state=random_state,
-        force_retune=(force_retune is True),  # only wipe checkpoint if True
+        force_retune=(force_retune is True),
     )
 
     # Get the new best score from checkpoint

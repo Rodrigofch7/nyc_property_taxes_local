@@ -1,22 +1,32 @@
 {
-  "lgbm": {
-    "n_estimators": 800,
-    "learning_rate": 0.1,
-    "num_leaves": 255,
-    "min_child_samples": 50,
-    "subsample": 1.0,
-    "colsample_bytree": 0.8,
-    "reg_alpha": 0.0,
-    "reg_lambda": 1.0
-  },
   "sgd_l1": {
     "alpha": 0.005
-  },
-  "sgd_l2": {
-    "alpha": 0.01
   },
   "sgd_elasticnet": {
     "alpha": 1.0,
     "l1_ratio": 0.5
+  },
+  "sgd_l2": {
+    "alpha": 0.01
+  },
+  "sgd_l2_pca": {
+    "sgd__alpha": 0.01
+  },
+  "sgd_l1_pca": {
+    "sgd__alpha": 0.1
+  },
+  "sgd_elasticnet_pca": {
+    "sgd__alpha": 0.01,
+    "sgd__l1_ratio": 0.1
+  },
+  "lgbm": {
+    "n_estimators": 800,
+    "learning_rate": 0.05,
+    "num_leaves": 511,
+    "min_child_samples": 20,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 0.0,
+    "reg_lambda": 1.0
   }
 }
