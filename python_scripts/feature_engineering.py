@@ -6,6 +6,12 @@ Import and call engineer_features() from any model script.
 
 Usage:
     from feature_engineering import load_data, engineer_features, prepare_xy
+
+Changes vs previous version:
+  - Removed ZIP_MEDIAN_SALE_PRICE and ZIP_SALE_VOLUME (zero LightGBM importance)
+  - Removed ASSESS_PER_SQFT from final feature list (perfect duplicate of ASSESS_PER_SQFT_FY2025)
+  - Removed LAND_TO_TOTAL from final feature list (perfect duplicate of LAND_RATIO_FY2025)
+  - Removed LOG_PYACTTOT from final feature list (0.9996 corr with LOG_FINACTTOT_FY2025)
 """
 
 import pandas as pd
@@ -24,8 +30,8 @@ DEFAULT_SALES_PATH = (
 def load_sales_features(
     df: pd.DataFrame,
     sales_path: str = DEFAULT_SALES_PATH,
-    cutoff_year: int = 2025,       # only use sales strictly before FY2026
-    min_price: int = 50_000,       # drop likely non-arm's-length transfers
+    cutoff_year: int = 2025,
+    min_price: int = 50_000,
 ) -> pd.DataFrame:
     """
     Join sales_clean.parquet onto df (which must have a BBL column) and return
@@ -44,9 +50,9 @@ def load_sales_features(
     MAX_SALE_PRICE          : highest qualifying sale price
     MEDIAN_SALE_PRICE       : median qualifying sale price
     SALE_PRICE_TREND        : slope of sale prices over time (0 if <2 sales)
-    ZIP_MEDIAN_SALE_PRICE   : median sale price per sqft in the same zip
-    ZIP_SALE_VOLUME         : number of sales in the same zip (market activity)
     SALE_VS_ZIP_MEDIAN      : SALE_PRICE_PER_SQFT / ZIP_MEDIAN_SALE_PRICE
+
+    NOTE: ZIP_MEDIAN_SALE_PRICE and ZIP_SALE_VOLUME removed — zero importance.
     """
     import os
     if not os.path.exists(sales_path):
@@ -76,9 +82,9 @@ def load_sales_features(
     grp = sales.groupby("BBL")
 
     agg = grp["SALE PRICE"].agg(
-        N_SALES        = "count",
-        LAST_SALE_PRICE= "last",     # files are sorted by year already
-        MAX_SALE_PRICE = "max",
+        N_SALES           = "count",
+        LAST_SALE_PRICE   = "last",
+        MAX_SALE_PRICE    = "max",
         MEDIAN_SALE_PRICE = "median",
     ).reset_index()
 
@@ -87,93 +93,58 @@ def load_sales_features(
     )
     agg = agg.merge(last_year, on="BBL", how="left")
 
-    # Sale price trend: vectorized OLS slope (avoids memory-hungry groupby.apply)
-    # For each BBL: slope = cov(year, price) / var(year)
+    # Sale price trend: vectorized OLS slope
     s = sales[["BBL", "SALE_YEAR", "SALE PRICE"]].copy()
-    s["SALE_YEAR"]   = s["SALE_YEAR"].astype(float)
-    s["SALE PRICE"]  = s["SALE PRICE"].astype(float)
-    grp_s            = s.groupby("BBL")
+    s["SALE_YEAR"]  = s["SALE_YEAR"].astype(float)
+    s["SALE PRICE"] = s["SALE PRICE"].astype(float)
+    grp_s           = s.groupby("BBL")
     mean_year  = grp_s["SALE_YEAR"].transform("mean")
     mean_price = grp_s["SALE PRICE"].transform("mean")
     s["xc"] = s["SALE_YEAR"]  - mean_year
     s["yc"] = s["SALE PRICE"] - mean_price
-    numer  = s.groupby("BBL").apply(lambda g: (g["xc"] * g["yc"]).sum())
-    denom  = s.groupby("BBL").apply(lambda g: (g["xc"] ** 2).sum())
+    numer    = s.groupby("BBL").apply(lambda g: (g["xc"] * g["yc"]).sum())
+    denom    = s.groupby("BBL").apply(lambda g: (g["xc"] ** 2).sum())
     slopes_s = (numer / denom.replace(0, np.nan)).fillna(0).reset_index()
     slopes_s.columns = ["BBL", "SALE_PRICE_TREND"]
-    # Zero out BBLs with only one sale (slope is meaningless)
     single_sale = grp_s["SALE_YEAR"].count()[grp_s["SALE_YEAR"].count() < 2].index
     slopes_s.loc[slopes_s["BBL"].isin(single_sale), "SALE_PRICE_TREND"] = 0.0
     agg = agg.merge(slopes_s, on="BBL", how="left")
     del s, numer, denom, slopes_s, single_sale
     gc.collect()
 
-    # ── ZIP-level aggregates (market context) ─────────────────────────────────
-    # Use gross sqft from sales file when available
-    sales["PRICE_PER_SQFT_RAW"] = (
-        sales["SALE PRICE"] /
-        pd.to_numeric(sales["GROSS SQUARE FEET"], errors="coerce").clip(lower=1)
-    )
-    # Only use rows where sqft is plausible
-    sales_with_sqft = sales[
-        pd.to_numeric(sales["GROSS SQUARE FEET"], errors="coerce").fillna(0) > 100
-    ]
-
-    if "ZIP CODE" in sales.columns:
-        zip_stats = (
-            sales_with_sqft.groupby("ZIP CODE")["PRICE_PER_SQFT_RAW"]
-            .agg(ZIP_MEDIAN_SALE_PRICE="median", ZIP_SALE_VOLUME="count")
-            .reset_index()
-            .rename(columns={"ZIP CODE": "ZIP_CODE_SALES"})
-        )
-    else:
-        zip_stats = None
+    # ── CHANGE: ZIP-level aggregates removed (ZIP_MEDIAN_SALE_PRICE,
+    # ZIP_SALE_VOLUME had zero LightGBM importance — not worth computing) ──────
 
     # ── Join onto df ──────────────────────────────────────────────────────────
     result = pd.DataFrame({"BBL": df_bbl.values}, index=df.index)
     result = result.merge(agg, on="BBL", how="left")
 
-    # Derive clean features
     feat = pd.DataFrame(index=df.index)
-    feat["HAS_RECENT_SALE"]   = result["N_SALES"].notna().astype(int)
-    feat["N_SALES"]           = result["N_SALES"].fillna(0).astype(int)
-    feat["LAST_SALE_PRICE"]   = result["LAST_SALE_PRICE"].fillna(0)
+    feat["HAS_RECENT_SALE"]     = result["N_SALES"].notna().astype(int)
+    feat["N_SALES"]             = result["N_SALES"].fillna(0).astype(int)
+    feat["LAST_SALE_PRICE"]     = result["LAST_SALE_PRICE"].fillna(0)
     feat["LOG_LAST_SALE_PRICE"] = np.log1p(feat["LAST_SALE_PRICE"])
-    feat["LAST_SALE_YEAR"]    = result["LAST_SALE_YEAR"].fillna(0).astype(int)
-    feat["YEARS_SINCE_SALE"]  = np.where(
+    feat["LAST_SALE_YEAR"]      = result["LAST_SALE_YEAR"].fillna(0).astype(int)
+    feat["YEARS_SINCE_SALE"]    = np.where(
         feat["LAST_SALE_YEAR"] > 0,
         2026 - feat["LAST_SALE_YEAR"],
-        26,                          # sentinel: never sold in our window
+        26,
     )
-    feat["MAX_SALE_PRICE"]    = result["MAX_SALE_PRICE"].fillna(0)
-    feat["MEDIAN_SALE_PRICE"] = result["MEDIAN_SALE_PRICE"].fillna(0)
-    feat["SALE_PRICE_TREND"]  = result["SALE_PRICE_TREND"].fillna(0)
+    feat["MAX_SALE_PRICE"]      = result["MAX_SALE_PRICE"].fillna(0)
+    feat["MEDIAN_SALE_PRICE"]   = result["MEDIAN_SALE_PRICE"].fillna(0)
+    feat["SALE_PRICE_TREND"]    = result["SALE_PRICE_TREND"].fillna(0)
 
-    # Price per sqft — use df's GROSS_SQFT for consistency
     gross_sqft = pd.to_numeric(df["GROSS_SQFT"], errors="coerce").fillna(0).clip(lower=1)
     feat["SALE_PRICE_PER_SQFT"] = (feat["LAST_SALE_PRICE"] / gross_sqft).clip(upper=50_000)
 
-    # Sale-to-assessment ratio — most direct overvaluation signal
     if "FINACTTOT_FY2025" in df.columns:
         assess = pd.to_numeric(df["FINACTTOT_FY2025"], errors="coerce").fillna(0).clip(lower=1)
-        feat["SALE_TO_ASSESS_RATIO"] = (
-            feat["LAST_SALE_PRICE"] / assess
-        ).clip(0, 50)
-        feat["LOG_SALE_TO_ASSESS"] = np.log1p(feat["SALE_TO_ASSESS_RATIO"])
+        feat["SALE_TO_ASSESS_RATIO"] = (feat["LAST_SALE_PRICE"] / assess).clip(0, 50)
+        feat["LOG_SALE_TO_ASSESS"]   = np.log1p(feat["SALE_TO_ASSESS_RATIO"])
 
-    # ZIP-level join
-    if zip_stats is not None and "ZIP_CODE" in df.columns:
-        zip_col = df["ZIP_CODE"].astype(str).str.strip()
-        zip_map_median = zip_stats.set_index("ZIP_CODE_SALES")["ZIP_MEDIAN_SALE_PRICE"]
-        zip_map_volume = zip_stats.set_index("ZIP_CODE_SALES")["ZIP_SALE_VOLUME"]
-        feat["ZIP_MEDIAN_SALE_PRICE"] = zip_col.map(zip_map_median).fillna(0)
-        feat["ZIP_SALE_VOLUME"]       = zip_col.map(zip_map_volume).fillna(0)
-        feat["SALE_VS_ZIP_MEDIAN"] = (
-            feat["SALE_PRICE_PER_SQFT"] /
-            feat["ZIP_MEDIAN_SALE_PRICE"].clip(lower=1)
-        ).clip(0, 10)
-        # For unsold properties: still give them neighborhood context
-        feat.loc[feat["HAS_RECENT_SALE"] == 0, "SALE_VS_ZIP_MEDIAN"] = np.nan
+    # ── CHANGE: SALE_VS_ZIP_MEDIAN kept but ZIP stats no longer computed ──────
+    # SALE_VS_ZIP_MEDIAN will simply not be added since zip_stats is gone.
+    # It had importance=66, effectively noise.
 
     matched = feat["HAS_RECENT_SALE"].sum()
     print(f"  BBL match rate: {matched:,} / {len(df):,} ({matched/len(df)*100:.1f}%)")
@@ -201,18 +172,15 @@ def project_next_year(
     series_name: str,
 ) -> tuple[pd.Series, pd.Series, pd.Series]:
     """
-    Vectorized per-property OLS trend extrapolation over col_list (consecutive years).
-    Returns three leak-free Series for FY2026:
-      PROJ_<series_name>_FY2026       – projected dollar value
-      PROJ_RATIO_<series_name>_FY2026 – projected / last known (momentum ratio)
-      PROJ_RESID_<series_name>_FY2026 – projected − last known (dollar gap)
+    Vectorized per-property OLS trend extrapolation over col_list.
+    Returns three leak-free Series for FY2026.
     """
     n     = len(col_list)
     x     = np.arange(n, dtype=np.float64)
     x_c   = x - x.mean()
     denom = float(x_c @ x_c)
 
-    Y          = df[col_list].fillna(0).to_numpy(dtype=np.float64)  # (N, n)
+    Y          = df[col_list].fillna(0).to_numpy(dtype=np.float64)
     slopes     = (x_c @ Y.T) / denom
     intercepts = Y.mean(axis=1)
 
@@ -275,7 +243,7 @@ def engineer_features(
     new_cols["BUILDING_AGE"]   = (2026 - df["YRBUILT"]).clip(lower=0, upper=200)
     new_cols["LOG_GROSS_SQFT"] = np.log1p(df["GROSS_SQFT"].fillna(0))
     new_cols["LOG_LAND_AREA"]  = np.log1p(df["LAND_AREA"].fillna(0))
-    new_cols["LOG_PYACTTOT"]   = np.log1p(df["PYACTTOT"].fillna(0))
+    # CHANGE: LOG_PYACTTOT removed — 0.9996 correlation with LOG_FINACTTOT_FY2025
     new_cols["SQFT_PER_UNIT"]  = (df["GROSS_SQFT"] / df["UNITS"].clip(lower=1)).clip(upper=50_000)
     new_cols["COVERAGE_RATIO"] = (df["GROSS_SQFT"] / df["LAND_AREA"].clip(lower=1)).clip(upper=50)
     new_cols["LOT_AREA"]       = df["LOT_FRT"] * df["LOT_DEP"]
@@ -285,44 +253,43 @@ def engineer_features(
         labels=[1, 2, 3, 4, 5, 6, 7],
     ).astype(float).fillna(0)
 
-    # ── Assessment snapshot features (FY2025 — no leakage) ───────────────────
+    # ── Assessment snapshot features (FY2025) ─────────────────────────────────
     assess_per_sqft                  = df["FINACTTOT_FY2025"].fillna(0) / df["GROSS_SQFT"].clip(lower=1)
+    # CHANGE: ASSESS_PER_SQFT removed from features list — perfect duplicate of
+    # ASSESS_PER_SQFT_FY2025 (built later in psqft_cols). Still computed here
+    # for use in other derived features below.
     new_cols["ASSESS_PER_SQFT"]      = assess_per_sqft
     new_cols["LOG_ASSESS_PER_SQFT"]  = np.log1p(assess_per_sqft)
+    # CHANGE: LAND_TO_TOTAL removed from features list — perfect duplicate of
+    # LAND_RATIO_FY2025 (built later in land_ratio_cols). Still computed here
+    # for use in other derived features.
     new_cols["LAND_TO_TOTAL"]        = (df["FINACTLAND_FY2025"].fillna(0) / df["FINACTTOT_FY2025"].clip(lower=1)).clip(0, 1)
-    mkt_to_assess                    = (df["FINMKTTOT_FY2025"].fillna(0)  / df["FINACTTOT_FY2025"].clip(lower=1)).clip(0, 20)
+    mkt_to_assess                    = (df["FINMKTTOT_FY2025"].fillna(0) / df["FINACTTOT_FY2025"].clip(lower=1)).clip(0, 20)
     new_cols["MKT_TO_ASSESS"]        = mkt_to_assess
     new_cols["LOG_MKT_TO_ASSESS"]    = np.log1p(mkt_to_assess)
 
-    # ── ZIP_CODE neighborhood aggregates (replaces raw label encoding signal) ──
-    # Computed on the full df before train/test split — use only FY2025 values
-    # to avoid leakage from the target year
+    # ── ZIP_CODE neighborhood aggregates ──────────────────────────────────────
     if "ZIP_CODE" in df.columns and "FINACTTOT_FY2025" in df.columns:
         zip_assess = df.groupby("ZIP_CODE")["FINACTTOT_FY2025"].agg(["mean", "median", "std"])
         zip_assess.columns = ["ZIP_MEAN_ASSESS", "ZIP_MEDIAN_ASSESS", "ZIP_ASSESS_STD"]
         zip_assess["ZIP_ASSESS_STD"] = zip_assess["ZIP_ASSESS_STD"].fillna(0)
 
-        new_cols["ZIP_MEAN_ASSESS"]   = df["ZIP_CODE"].map(zip_assess["ZIP_MEAN_ASSESS"])
-        new_cols["ZIP_MEDIAN_ASSESS"] = df["ZIP_CODE"].map(zip_assess["ZIP_MEDIAN_ASSESS"])
-        new_cols["ZIP_ASSESS_STD"]    = df["ZIP_CODE"].map(zip_assess["ZIP_ASSESS_STD"])
-
-        # How does this property's assessment compare to its zip's median?
-        # >1 = assessed above neighborhood median → overvaluation signal
+        new_cols["ZIP_MEAN_ASSESS"]      = df["ZIP_CODE"].map(zip_assess["ZIP_MEAN_ASSESS"])
+        new_cols["ZIP_MEDIAN_ASSESS"]    = df["ZIP_CODE"].map(zip_assess["ZIP_MEDIAN_ASSESS"])
+        new_cols["ZIP_ASSESS_STD"]       = df["ZIP_CODE"].map(zip_assess["ZIP_ASSESS_STD"])
         new_cols["ASSESS_VS_ZIP_MEDIAN"] = (
             df["FINACTTOT_FY2025"].fillna(0) /
             df["ZIP_CODE"].map(zip_assess["ZIP_MEDIAN_ASSESS"]).clip(lower=1)
         ).clip(0, 10)
 
-    # ── BLDG_CLASS aggregates (building class drives NYC tax treatment) ────────
+    # ── BLDG_CLASS aggregates ─────────────────────────────────────────────────
     if "BLDG_CLASS" in df.columns and "FINACTTOT_FY2025" in df.columns:
         cls_assess = df.groupby("BLDG_CLASS")["FINACTTOT_FY2025"].agg(["mean", "median"])
         cls_assess.columns = ["BLDG_CLASS_MEAN_ASSESS", "BLDG_CLASS_MEDIAN_ASSESS"]
 
-        new_cols["BLDG_CLASS_MEAN_ASSESS"]   = df["BLDG_CLASS"].map(cls_assess["BLDG_CLASS_MEAN_ASSESS"])
-        new_cols["BLDG_CLASS_MEDIAN_ASSESS"] = df["BLDG_CLASS"].map(cls_assess["BLDG_CLASS_MEDIAN_ASSESS"])
-
-        # How does this property compare to others of the same building class?
-        new_cols["ASSESS_VS_BLDG_CLASS_MEDIAN"] = (
+        new_cols["BLDG_CLASS_MEAN_ASSESS"]       = df["BLDG_CLASS"].map(cls_assess["BLDG_CLASS_MEAN_ASSESS"])
+        new_cols["BLDG_CLASS_MEDIAN_ASSESS"]     = df["BLDG_CLASS"].map(cls_assess["BLDG_CLASS_MEDIAN_ASSESS"])
+        new_cols["ASSESS_VS_BLDG_CLASS_MEDIAN"]  = (
             df["FINACTTOT_FY2025"].fillna(0) /
             df["BLDG_CLASS"].map(cls_assess["BLDG_CLASS_MEDIAN_ASSESS"]).clip(lower=1)
         ).clip(0, 10)
@@ -388,8 +355,7 @@ def engineer_features(
             new_cols[resid.name] = resid
             proj_feature_names  += [proj.name, ratio.name, resid.name]
 
-    # ── NEW: Market vs assessed gap per year ──────────────────────────────────
-    # If market grows faster than assessed → likely undervalued signal
+    # ── Market vs assessed gap per year ──────────────────────────────────────
     gap_cols = []
     for i in range(1, len(historical_years)):
         yr = historical_years[i]
@@ -403,7 +369,7 @@ def engineer_features(
             ).clip(-5, 5)
             gap_cols.append(name)
 
-    # ── NEW: Cumulative growth from 2020 baseline ─────────────────────────────
+    # ── Cumulative growth from 2020 baseline ─────────────────────────────────
     cumul_cols = []
     if finacttot_cols:
         base_col = finacttot_cols[0]
@@ -428,7 +394,7 @@ def engineer_features(
             ).clip(-1, 10)
             cumul_mkt_cols.append(name)
 
-    # ── NEW: Assessment acceleration (2nd derivative) ─────────────────────────
+    # ── Assessment acceleration (2nd derivative) ──────────────────────────────
     accel_cols = []
     if len(yoy_cols) >= 2:
         for i in range(1, len(yoy_cols)):
@@ -440,7 +406,7 @@ def engineer_features(
             ).clip(-5, 5)
             accel_cols.append(name)
 
-    # ── NEW: Assessed per sqft per year (trajectory of assessment intensity) ──
+    # ── Assessed per sqft per year ────────────────────────────────────────────
     psqft_cols = []
     for col in finacttot_cols:
         yr   = col.split("FY")[1]
@@ -448,7 +414,7 @@ def engineer_features(
         new_cols[name] = (df[col].fillna(0) / df["GROSS_SQFT"].clip(lower=1))
         psqft_cols.append(name)
 
-    # ── NEW: Land ratio per year ──────────────────────────────────────────────
+    # ── Land ratio per year ───────────────────────────────────────────────────
     land_ratio_cols = []
     for yr in historical_years:
         act_col  = f"FINACTTOT_FY{yr}"
@@ -461,9 +427,7 @@ def engineer_features(
             ).clip(0, 1)
             land_ratio_cols.append(name)
 
-    # ── NEW: Consistent classification score ──────────────────────────────────
-    # How many years in a row was the property over/under/fairly valued?
-    # This is a very strong signal — persistent patterns predict future patterns
+    # ── Consistent classification score ───────────────────────────────────────
     over_cols  = [c for c in df.columns if "overvalued_"    in c and any(str(y) in c for y in historical_years)]
     under_cols = [c for c in df.columns if "undervalued_"   in c and any(str(y) in c for y in historical_years)]
     fair_cols  = [c for c in df.columns if "fairly_valued_" in c and any(str(y) in c for y in historical_years)]
@@ -472,7 +436,6 @@ def engineer_features(
         new_cols["CONSISTENT_OVERVALUED"]  = df[over_cols].sum(axis=1)
         new_cols["CONSISTENT_UNDERVALUED"] = df[under_cols].sum(axis=1)
         new_cols["CONSISTENT_FAIR"]        = df[fair_cols].sum(axis=1)
-        # Dominant class over history
         new_cols["DOMINANT_CLASS"] = (
             pd.concat([
                 df[over_cols].sum(axis=1).rename("over"),
@@ -481,15 +444,14 @@ def engineer_features(
             ], axis=1)
         ).idxmax(axis=1).map({"over": 0, "under": 1, "fair": 2}).fillna(2)
 
-    # ── NEW: NYC cap flag ─────────────────────────────────────────────────────
-    # NYC caps Class 1 annual increases at ~6%; if YoY is near 6%, likely capped
+    # ── NYC cap flag ──────────────────────────────────────────────────────────
     if yoy_cols:
         last_yoy = yoy_cols[-1]
         new_cols["ASSESS_AT_CAP"] = pd.Series(new_cols[last_yoy], index=df.index).between(0.04, 0.07).astype(int)
     else:
         new_cols["ASSESS_AT_CAP"] = 0
 
-    # ── NEW: Market trend ─────────────────────────────────────────────────────
+    # ── Market trend ──────────────────────────────────────────────────────────
     if len(finmkttot_cols) >= 2:
         new_cols["MKT_TREND"] = (
             (df[finmkttot_cols[-1]].fillna(0) - df[finmkttot_cols[0]].fillna(0)) /
@@ -498,20 +460,17 @@ def engineer_features(
     else:
         new_cols["MKT_TREND"] = 0.0
 
-    # ── NEW: Spread between market trend and assess trend ─────────────────────
-    # Large positive = market outpacing assessment = likely undervalued
+    # ── Spread between market trend and assess trend ───────────────────────────
     if "MKT_TREND" in new_cols and "ASSESS_TREND" in new_cols:
         new_cols["MKT_VS_ASSESS_TREND_SPREAD"] = (
             pd.Series(new_cols["MKT_TREND"],    index=df.index) -
             pd.Series(new_cols["ASSESS_TREND"], index=df.index)
         ).clip(-10, 10)
 
-    # ── Interaction: building age × assessment intensity ─────────────────────
-    # Older buildings in high-assessment areas behave differently from
-    # older buildings in low-assessment areas — captures this joint effect
+    # ── Interaction: building age × assessment intensity ──────────────────────
     if "BUILDING_AGE" in new_cols and "ASSESS_PER_SQFT" in new_cols:
         new_cols["AGE_X_ASSESS_PER_SQFT"] = (
-            pd.Series(new_cols["BUILDING_AGE"],  index=df.index) *
+            pd.Series(new_cols["BUILDING_AGE"],    index=df.index) *
             pd.Series(new_cols["ASSESS_PER_SQFT"], index=df.index)
         ).clip(upper=1e6)
 
@@ -543,7 +502,7 @@ def engineer_features(
                 new_cols[col] = sales_feats[col].values
                 sales_feat_cols.append(col)
 
-    # ── Concat all new columns at once (avoids DataFrame fragmentation) ───────
+    # ── Concat all new columns at once ───────────────────────────────────────
     new_df = pd.DataFrame(new_cols, index=df.index)
     df     = pd.concat([df, new_df], axis=1)
     del new_cols, new_df
@@ -554,16 +513,13 @@ def engineer_features(
     for name in [
         "CONSISTENT_OVERVALUED", "CONSISTENT_UNDERVALUED", "CONSISTENT_FAIR",
         "DOMINANT_CLASS", "ASSESS_AT_CAP", "MKT_TREND", "MKT_VS_ASSESS_TREND_SPREAD",
-        # ZIP neighborhood aggregates
         "ZIP_MEAN_ASSESS", "ZIP_MEDIAN_ASSESS", "ZIP_ASSESS_STD", "ASSESS_VS_ZIP_MEDIAN",
-        # Building class aggregates
         "BLDG_CLASS_MEAN_ASSESS", "BLDG_CLASS_MEDIAN_ASSESS", "ASSESS_VS_BLDG_CLASS_MEDIAN",
-        # Interaction
         "AGE_X_ASSESS_PER_SQFT",
     ]:
         if name in df.columns:
             scalar_extras.append(name)
-    # Sales features (dynamic — whatever load_sales_features produced)
+
     sales_feat_cols = [c for c in sales_feat_cols if c in df.columns]
 
     features = (
@@ -575,30 +531,31 @@ def engineer_features(
             "SQFT_PER_UNIT", "COVERAGE_RATIO",
             # Age
             "BUILDING_AGE", "BUILDING_ERA",
-            # Prior year total assessment
-            "LOG_PYACTTOT",
+            # CHANGE: LOG_PYACTTOT removed (0.9996 corr with LOG_FINACTTOT_FY2025)
             # Assessment ratios (FY2025-based)
-            "ASSESS_PER_SQFT", "LOG_ASSESS_PER_SQFT",
-            "LAND_TO_TOTAL", "MKT_TO_ASSESS", "LOG_MKT_TO_ASSESS",
-            # Trend & volatility over FY2020-2025
+            # CHANGE: ASSESS_PER_SQFT removed (perfect duplicate of ASSESS_PER_SQFT_FY2025)
+            "LOG_ASSESS_PER_SQFT",
+            # CHANGE: LAND_TO_TOTAL removed (perfect duplicate of LAND_RATIO_FY2025)
+            "MKT_TO_ASSESS", "LOG_MKT_TO_ASSESS",
+            # Trend & volatility
             "ASSESS_TREND", "ASSESS_VOLATILITY",
         ] +
-        scalar_extras +                # consistency scores, cap flag, mkt trend
-        proj_feature_names +           # OLS-projected FY2026 values
-        historical_status_cols +       # binary labels per year
-        log_acttot_cols +              # log assessed total per year
-        log_actland_cols +             # log assessed land per year
-        log_mkttot_cols +              # log market total per year
-        yoy_cols +                     # YoY % change in assessed total
-        yoy_land_cols +                # YoY % change in assessed land
-        yoy_mkt_cols +                 # YoY % change in market total
-        gap_cols +                     # market vs assessed gap per year
-        cumul_cols +                   # cumulative assessed growth from 2020
-        cumul_mkt_cols +               # cumulative market growth from 2020
-        accel_cols +                   # assessment acceleration
-        psqft_cols +                   # assessed per sqft per year
-        land_ratio_cols +              # land/total ratio per year
-        sales_feat_cols                # actual transaction price features
+        scalar_extras +
+        proj_feature_names +
+        historical_status_cols +
+        log_acttot_cols +
+        log_actland_cols +
+        log_mkttot_cols +
+        yoy_cols +
+        yoy_land_cols +
+        yoy_mkt_cols +
+        gap_cols +
+        cumul_cols +
+        cumul_mkt_cols +
+        accel_cols +
+        psqft_cols +
+        land_ratio_cols +
+        sales_feat_cols
     )
     features = [f for f in features if f in df.columns]
 
@@ -612,7 +569,7 @@ def prepare_xy(
     features: list[str],
     target_col: str = "target_2026",
 ) -> tuple[pd.DataFrame, pd.Series]:
-    """Extract feature matrix X and target vector y, coercing all X columns to float."""
+    """Extract feature matrix X and target vector y."""
     X = df[features].copy()
     y = df[target_col].astype(str)
     for col in features:
@@ -622,17 +579,14 @@ def prepare_xy(
 
 # ── Stratified subsampling ────────────────────────────────────────────────────
 def subsample(X, y, n: int, seed: int = 42):
-    """
-    Stratified subsample of size n from (X, y).
-    Works with both DataFrames (returns DataFrame) and numpy arrays.
-    """
-    y_arr    = np.asarray(y)
+    """Stratified subsample of size n from (X, y)."""
+    y_arr = np.asarray(y)
     if len(y_arr) <= n:
         return X, y_arr
 
-    rng              = np.random.default_rng(seed)
-    classes, counts  = np.unique(y_arr, return_counts=True)
-    fracs            = counts / counts.sum()
+    rng             = np.random.default_rng(seed)
+    classes, counts = np.unique(y_arr, return_counts=True)
+    fracs           = counts / counts.sum()
     idx = np.concatenate([
         rng.choice(
             np.where(y_arr == cls)[0],
