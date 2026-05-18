@@ -382,45 +382,50 @@ with tab2:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# TAB 3 — BBL LOOKUP
+# ════════════════════════════════════════════════════════════════════════════════
+# TAB 3 — BBL LOOKUP (uses sample_properties.json — no full dataset needed)
 # ════════════════════════════════════════════════════════════════════════════════
 with tab3:
     st.header("🔍 Property Lookup")
-    st.markdown("""
-    Enter a **BBL (Borough-Block-Lot)** to look up a property's FY2026 classification
-    and see how it compares to its peer group.
+    st.info("🔎 **Demo sample** — 100 real properties from the dataset (stratified across classes and boroughs). The full model was trained on 1.1M NYC tax lots.")
 
-    Format: `BBBBBBBLLLL` (10 digits) — e.g. `1000750043` for Manhattan.
-    """)
+    # Load sample JSON
+    import json
+    sample_path = os.path.join(BASE_DIR, "sample_properties.json")
+    with open(sample_path) as f:
+        sample_list = json.load(f)
+    sample_lookup = {str(p["BBL"]): p for p in sample_list}
 
     col_input, col_example = st.columns([2, 1])
     with col_input:
-        bbl_input = st.text_input("Enter BBL", placeholder="e.g. 1000750043", max_chars=15)
+        bbl_input = st.text_input("Enter BBL", placeholder="e.g. 5036410049", max_chars=15)
     with col_example:
         st.markdown("**Example BBLs**")
-        for b in df.sample(5, random_state=42)["BBL"].tolist():
-            if st.button(b, key=f"btn_{b}"):
+        for p in sample_list[:5]:
+            b = str(p["BBL"])
+            lbl = CLASS_LABELS.get(p.get("target_2026", ""), b)
+            if st.button(f"{b} ({lbl})", key=f"btn_{b}"):
                 bbl_input = b
 
     if bbl_input:
-        prop = lookup_bbl(bbl_input, df)
+        prop = sample_lookup.get(bbl_input.strip())
 
         if prop is None:
-            st.error(f"BBL `{bbl_input}` not found. Please check the number.")
+            st.error(f"BBL `{bbl_input}` not in the demo sample. Try one of the example BBLs above.")
         else:
             st.subheader(f"Property: BBL {bbl_input}")
 
             # ── Property info ─────────────────────────────────────────────────
             r1 = st.columns(4)
-            r1[0].metric("Borough",       BORO_MAP.get(str(prop.get("BORO", "")), "Unknown"))
-            r1[1].metric("Building Class", str(prop.get("BLDG_CLASS", "N/A")))
-            r1[2].metric("Gross Sqft",     f"{float(prop.get('GROSS_SQFT', 0) or 0):,.0f}")
-            r1[3].metric("Year Built",     str(prop.get("YRBUILT", "N/A")))
+            r1[0].metric("Borough",        BORO_MAP.get(str(prop.get("BORO", "")), "Unknown"))
+            r1[1].metric("Building Class",  str(prop.get("BLDG_CLASS", "N/A")))
+            r1[2].metric("Gross Sqft",      f"{float(prop.get('GROSS_SQFT', 0) or 0):,.0f}")
+            r1[3].metric("Year Built",      str(prop.get("YRBUILT", "N/A")))
             r2 = st.columns(4)
-            r2[0].metric("ZIP Code",       str(prop.get("ZIP_CODE", "N/A")).strip())
-            r2[1].metric("Units",          str(prop.get("UNITS",    "N/A")))
-            r2[2].metric("# Buildings",    str(prop.get("NUM_BLDGS","N/A")))
-            r2[3].metric("Floors",         str(prop.get("BLD_STORY","N/A")))
+            r2[0].metric("ZIP Code",        str(prop.get("ZIP_CODE", "N/A")).strip())
+            r2[1].metric("Units",           str(prop.get("UNITS",    "N/A")))
+            r2[2].metric("# Buildings",     str(prop.get("NUM_BLDGS","N/A")))
+            r2[3].metric("Floors",          str(prop.get("BLD_STORY","N/A")))
 
             st.markdown("---")
 
@@ -451,12 +456,12 @@ with tab3:
 
             with hist_col:
                 st.subheader("Assessment History (FY2020–FY2026)")
-                hist_years = [2020, 2021, 2022, 2023, 2024, 2025]
-                hist_vals  = [pd.to_numeric(prop.get(f"FINACTTOT_FY{y}", np.nan), errors="coerce") for y in hist_years]
-                hist_years.append(2026)
-                hist_vals.append(pd.to_numeric(prop.get("FINACTTOT", np.nan), errors="coerce"))
+                hist_years = [2020, 2021, 2022, 2023, 2024, 2025, 2026]
+                hist_vals  = [
+                    prop.get(f"FINACTTOT_FY{y}", None) for y in [2020,2021,2022,2023,2024,2025]
+                ] + [prop.get("FINACTTOT", None)]
 
-                valid = [(y, v) for y, v in zip(hist_years, hist_vals) if pd.notna(v)]
+                valid = [(y, float(v)) for y, v in zip(hist_years, hist_vals) if v not in (None, 0)]
                 if valid:
                     ys, vs = zip(*valid)
                     fig4, ax4 = plt.subplots(figsize=(6, 3))
@@ -475,41 +480,41 @@ with tab3:
             st.markdown("---")
             st.subheader("Peer Group Comparison")
 
-            boro_val   = prop.get("BORO", "")
-            bldg_val   = prop.get("BLDG_CLASS", "")
-            gross_sqft = pd.to_numeric(prop.get("GROSS_SQFT", 0), errors="coerce")
-            finacttot  = pd.to_numeric(prop.get("FINACTTOT",  np.nan), errors="coerce")
+            gross_sqft  = float(prop.get("GROSS_SQFT", 0) or 0)
+            finacttot   = float(prop.get("FINACTTOT",  0) or 0)
+            peer_median = float(prop.get("peer_median", 0) or 0)
+            peer_p25    = float(prop.get("peer_p25",    0) or 0)
+            peer_p75    = float(prop.get("peer_p75",    0) or 0)
+            peer_size   = int(prop.get("peer_size",     0) or 0)
 
-            peers = df[(df["BORO"] == boro_val) & (df["BLDG_CLASS"] == bldg_val)].copy()
-
-            if len(peers) > 0 and gross_sqft and gross_sqft > 0 and pd.notna(finacttot):
-                peers["assess_per_sqft"] = peers["FINACTTOT"] / peers["GROSS_SQFT"].clip(lower=1)
-                this_psqft  = finacttot / gross_sqft
-                peer_median = peers["assess_per_sqft"].median()
-                peer_p25    = peers["assess_per_sqft"].quantile(0.25)
-                peer_p75    = peers["assess_per_sqft"].quantile(0.75)
+            if gross_sqft > 0 and finacttot > 0 and peer_median > 0:
+                this_psqft = finacttot / gross_sqft
 
                 pc = st.columns(4)
                 pc[0].metric("This Property ($/sqft)", f"${this_psqft:,.2f}")
                 pc[1].metric("Peer Median ($/sqft)",   f"${peer_median:,.2f}")
                 pc[2].metric("vs Peer Median",          f"{(this_psqft/peer_median - 1)*100:+.1f}%")
-                pc[3].metric("Peer Group Size",          f"{len(peers):,}")
+                pc[3].metric("Peer Group Size",          f"{peer_size:,}")
 
-                plot_data = peers["assess_per_sqft"].dropna()
-                plot_data = plot_data[plot_data.between(plot_data.quantile(0.01), plot_data.quantile(0.99))]
+                # Synthetic peer distribution from pre-computed stats
+                rng = np.random.default_rng(42)
+                peer_std = (peer_p75 - peer_p25) / 1.35
+                synthetic_peers = rng.normal(loc=peer_median, scale=max(peer_std, 1), size=500)
+                synthetic_peers = synthetic_peers[(synthetic_peers > 0) & (synthetic_peers < peer_median * 4)]
+
                 fig5, ax5 = plt.subplots(figsize=(8, 3))
-                ax5.hist(plot_data, bins=50, color="#aaaaaa", alpha=0.7, label="Peer group")
+                ax5.hist(synthetic_peers, bins=40, color="#aaaaaa", alpha=0.7, label="Peer group (modeled)")
                 ax5.axvline(this_psqft,  color=color,    linewidth=3, label=f"This: ${this_psqft:,.0f}")
                 ax5.axvline(peer_median, color="#333333", linewidth=2, linestyle="--", label=f"Median: ${peer_median:,.0f}")
                 ax5.axvspan(peer_median * 0.85, peer_median * 1.15, alpha=0.1, color="green", label="±15% fair zone")
                 ax5.set_xlabel("Assessed Value per Sqft ($)")
                 ax5.set_ylabel("Count")
-                ax5.set_title(f"Peer Group — {BORO_MAP.get(str(boro_val), '')} / {bldg_val}")
+                ax5.set_title(f"Peer Group — {BORO_MAP.get(str(prop.get('BORO','')), '')} / {prop.get('BLDG_CLASS','')}")
                 ax5.legend(fontsize=8)
                 plt.tight_layout()
                 st.pyplot(fig5)
                 plt.close()
-                st.caption(f"25th–75th percentile: ${peer_p25:,.0f}–${peer_p75:,.0f}/sqft")
+                st.caption(f"25th–75th percentile: ${peer_p25:,.0f}–${peer_p75:,.0f}/sqft  |  {peer_size:,} properties in peer group")
             else:
                 st.info("Not enough peer data to show comparison.")
 
@@ -518,8 +523,8 @@ with tab3:
             st.subheader("Historical Classification (FY2020–FY2025)")
             hist_cols = st.columns(6)
             for i, yr in enumerate([2020, 2021, 2022, 2023, 2024, 2025]):
-                over  = int(prop.get(f"overvalued_{yr}",    0) or 0)
-                under = int(prop.get(f"undervalued_{yr}",   0) or 0)
+                over  = int(prop.get(f"overvalued_{yr}",  0) or 0)
+                under = int(prop.get(f"undervalued_{yr}", 0) or 0)
                 if over:
                     s, c = "Overvalued",    "#d73027"
                 elif under:
