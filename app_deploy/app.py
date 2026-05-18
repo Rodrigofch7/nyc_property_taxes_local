@@ -177,11 +177,14 @@ with tab1:
             "Test Accuracy":  [0.8188, 0.8182, 0.7584, 0.8822],
             "CV F1 Macro":    [0.8135, 0.8136, 0.7581, None],
         })
+        def highlight_best(s):
+            is_max = s == s.max()
+            return ["color: #f5c518; font-weight: bold" if v else "" for v in is_max]
+
         st.dataframe(
-            perf_df.style.highlight_max(
-                subset=["Test F1 Macro", "Test Accuracy"],
-                color="#c6efce"
-            ).format({
+            perf_df.style
+            .apply(highlight_best, subset=["Test F1 Macro", "Test Accuracy"])
+            .format({
                 "Test F1 Macro": "{:.4f}",
                 "Test Accuracy": "{:.4f}",
                 "CV F1 Macro":   lambda x: f"{x:.4f}" if pd.notna(x) else "—",
