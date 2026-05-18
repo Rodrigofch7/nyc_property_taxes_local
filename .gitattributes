@@ -1,1 +1,2 @@
 *.parquet filter=lfs diff=lfs merge=lfs -text
+models/lgbm_model.pkl filter=lfs diff=lfs merge=lfs -text
