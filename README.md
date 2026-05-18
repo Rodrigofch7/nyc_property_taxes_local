@@ -59,12 +59,12 @@
 
 ## Feature Engineering (`feature_engineering.py`)
 
-138 features across several groups:
+Features across several groups (4 removed vs prior version due to redundancy or zero importance):
 
 | Group | Examples |
 |---|---|
 | Property structure | `LOG_GROSS_SQFT`, `SQFT_PER_UNIT`, `COVERAGE_RATIO`, `BUILDING_AGE`, `BUILDING_ERA` |
-| Assessment snapshot (FY2025) | `LOG_ASSESS_PER_SQFT`, `LAND_TO_TOTAL`, `MKT_TO_ASSESS` |
+| Assessment snapshot (FY2025) | `LOG_ASSESS_PER_SQFT`, `MKT_TO_ASSESS`, `LOG_MKT_TO_ASSESS` |
 | ZIP neighborhood aggregates | `ZIP_MEAN_ASSESS`, `ZIP_ASSESS_STD`, `ASSESS_VS_ZIP_MEDIAN` |
 | Building class aggregates | `BLDG_CLASS_MEDIAN_ASSESS`, `ASSESS_VS_BLDG_CLASS_MEDIAN` |
 | YoY % change | `ASSESS_YOY_FY{yr}`, `MKT_YOY_FY{yr}`, `LAND_YOY_FY{yr}` |
@@ -73,9 +73,11 @@
 | OLS projections to FY2026 | `PROJ_FINACTTOT_FY2026`, `PROJ_RATIO_*`, `PROJ_RESID_*` |
 | Historical status flags | `overvalued_{yr}`, `undervalued_{yr}`, `fairly_valued_{yr}` |
 | Consistency scores | `CONSISTENT_OVERVALUED`, `DOMINANT_CLASS`, `ASSESS_AT_CAP` |
-| Sales features (BBL join) | `LAST_SALE_PRICE`, `SALE_TO_ASSESS_RATIO`, `ZIP_MEDIAN_SALE_PRICE`, `SALE_VS_ZIP_MEDIAN` |
+| Sales features (BBL join) | `LAST_SALE_PRICE`, `SALE_TO_ASSESS_RATIO`, `SALE_PRICE_PER_SQFT`, `LOG_SALE_TO_ASSESS` |
 | Interactions | `AGE_X_ASSESS_PER_SQFT` |
 | Categoricals (label-encoded) | `BORO_CODE`, `BLDG_CLASS_CODE`, `ZIP_CODE_CODE`, `ZONING_CODE` |
+
+**Removed features:** `ASSESS_PER_SQFT` (duplicate of `ASSESS_PER_SQFT_FY2025`), `LAND_TO_TOTAL` (duplicate of `LAND_RATIO_FY2025`), `LOG_PYACTTOT` (corr=0.9996 with `LOG_FINACTTOT_FY2025`), `ZIP_MEDIAN_SALE_PRICE` / `ZIP_SALE_VOLUME` / `SALE_VS_ZIP_MEDIAN` (zero LightGBM importance).
 
 BBL match rate for sales features: ~31% (338k of 1.1M properties have a qualifying sale).
 
