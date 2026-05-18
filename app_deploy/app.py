@@ -331,7 +331,15 @@ with tab3:
         bbl_input = st.text_input("Enter BBL", placeholder="e.g. 5036410049", max_chars=15)
     with col_example:
         st.markdown("**Example BBLs**")
-        for p in sample_list[:5]:
+        shown, examples = set(), []
+        for p in sample_list:
+            cls = p.get("target_2026", "")
+            if cls not in shown and cls in CLASS_LABELS:
+                examples.append(p)
+                shown.add(cls)
+            if len(shown) == 3:
+                break
+        for p in examples:
             b   = str(p["BBL"])
             lbl = CLASS_LABELS.get(p.get("target_2026", ""), b)
             if st.button(f"{b} ({lbl})", key=f"btn_{b}"):
