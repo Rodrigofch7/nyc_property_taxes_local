@@ -4,14 +4,15 @@ app.py
 Streamlit app for NYC Property Tax Assessment Classification
 Three tabs:
   1. Methodology — model explanation, feature importance, confusion matrix
-  2. Borough Analysis — charts of assessment patterns
-  3. BBL Lookup — enter a BBL and get a classification with peer comparison
+  2. Borough Analysis — pre-aggregated charts (no parquet)
+  3. BBL Lookup — 100-property demo sample (no parquet)
 
-Deploy: streamlit run app.py
+No full dataset loaded — all data served from pre-aggregated JSONs.
+Deploy: streamlit run app_deploy/app.py
 """
 
 import os
-import sys
+import json
 import streamlit as st
 import joblib
 import pandas as pd
@@ -22,12 +23,9 @@ import matplotlib.pyplot as plt
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))  # app_deploy/
-PROJECT_DIR = os.path.dirname(BASE_DIR)                      # project root
-sys.path.insert(0, os.path.join(PROJECT_DIR, "python_scripts"))
-
-DATA_PATH  = os.path.join(PROJECT_DIR, "data",    "processed_labeled_data.parquet")
-MODEL_DIR  = os.path.join(PROJECT_DIR, "models")
-OUTPUT_DIR = os.path.join(PROJECT_DIR, "outputs")
+PROJECT_DIR = os.path.dirname(BASE_DIR)                   # repo root
+MODEL_DIR   = os.path.join(PROJECT_DIR, "models")
+OUTPUT_DIR  = os.path.join(PROJECT_DIR, "outputs")
 
 # ── Page config ───────────────────────────────────────────────────────────────
 icon_path = os.path.join(BASE_DIR, "nyc.png")
@@ -51,22 +49,6 @@ CLASS_LABELS = {
 }
 BORO_MAP = {"1": "Manhattan", "2": "Bronx", "3": "Brooklyn", "4": "Queens", "5": "Staten Island"}
 
-# Columns to keep in memory — only what the app actually uses
-KEEP_COLS = [
-    "BBL", "BORO", "BLDG_CLASS", "ZIP_CODE", "GROSS_SQFT", "LAND_AREA",
-    "YRBUILT", "UNITS", "NUM_BLDGS", "BLD_STORY", "ZONING",
-    "FINACTTOT", "FINACTLAND", "FINMKTTOT",
-    "target_2026",
-    "FINACTTOT_FY2020", "FINACTTOT_FY2021", "FINACTTOT_FY2022",
-    "FINACTTOT_FY2023", "FINACTTOT_FY2024", "FINACTTOT_FY2025",
-    "overvalued_2020",    "overvalued_2021",    "overvalued_2022",
-    "overvalued_2023",    "overvalued_2024",    "overvalued_2025",
-    "undervalued_2020",   "undervalued_2021",   "undervalued_2022",
-    "undervalued_2023",   "undervalued_2024",   "undervalued_2025",
-    "fairly_valued_2020", "fairly_valued_2021", "fairly_valued_2022",
-    "fairly_valued_2023", "fairly_valued_2024", "fairly_valued_2025",
-]
-
 
 # ── Cached loaders ────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Loading model...")
@@ -77,35 +59,30 @@ def load_model():
     return model, features, le_dict
 
 
-@st.cache_data(show_spinner="Loading dataset...")
-def load_data():
-    cols = [c for c in KEEP_COLS]  # parquet columnar read — only what we need
-    try:
-        df = pd.read_parquet(DATA_PATH, columns=cols)
-    except Exception:
-        # fallback: read all and drop extras
-        df = pd.read_parquet(DATA_PATH)
-        df = df[[c for c in cols if c in df.columns]]
-    df["BBL"]       = df["BBL"].astype(str).str.strip()
-    df["BORO_NAME"] = df["BORO"].astype(str).map(BORO_MAP).fillna("Unknown")
-    # numeric coercions up front
-    for col in ["FINACTTOT", "GROSS_SQFT", "FINMKTTOT", "FINACTLAND"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
-
-
 @st.cache_data(show_spinner=False)
 def load_feature_importance():
     path = os.path.join(OUTPUT_DIR, "lgbm_feature_importance.csv")
     return pd.read_csv(path) if os.path.exists(path) else None
 
 
-# ── Prediction: uses pre-computed target from dataset (no re-engineering) ─────
-def lookup_bbl(bbl: str, df):
-    row = df[df["BBL"] == bbl.strip()]
-    return None if row.empty else row.iloc[0]
+@st.cache_data(show_spinner=False)
+def load_borough_summary():
+    with open(os.path.join(BASE_DIR, "borough_summary.json")) as f:
+        return json.load(f)
 
+
+@st.cache_data(show_spinner=False)
+def load_sample_properties():
+    with open(os.path.join(BASE_DIR, "sample_properties.json")) as f:
+        data = json.load(f)
+    return data, {str(p["BBL"]): p for p in data}
+
+
+# ── Load everything ───────────────────────────────────────────────────────────
+model, features, le_dict   = load_model()
+feat_imp                   = load_feature_importance()
+bsummary                   = load_borough_summary()
+sample_list, sample_lookup = load_sample_properties()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -133,11 +110,6 @@ with st.sidebar:
     st.caption("CAPP 30254 · Spring 2026 · UChicago  \nAhmed Lodhi · Faizan Imran · Rodrigo Chaves")
 
 
-# ── Load ──────────────────────────────────────────────────────────────────────
-model, features, le_dict = load_model()
-df       = load_data()
-feat_imp = load_feature_importance()
-
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📋 Methodology", "🗺️ Borough Analysis", "🔍 BBL Lookup"])
 
@@ -147,7 +119,6 @@ tab1, tab2, tab3 = st.tabs(["📋 Methodology", "🗺️ Borough Analysis", "�
 # ════════════════════════════════════════════════════════════════════════════════
 with tab1:
     st.header("Methodology")
-
     col1, col2 = st.columns([1, 1])
 
     with col1:
@@ -217,7 +188,7 @@ with tab1:
             }),
             use_container_width=True,
         )
-        st.caption("Baseline (majority class): 0.527  |  Linear models use PCA (60 components) + StandardScaler")
+        st.caption("Baseline (majority class): 0.527  |  Linear models: PCA (60 components) + StandardScaler")
 
         st.subheader("Top Features (LightGBM)")
         if feat_imp is not None:
@@ -235,7 +206,7 @@ with tab1:
         cm_path = os.path.join(OUTPUT_DIR, "lgbm_confusion_matrix.png")
         if os.path.exists(cm_path):
             st.subheader("Confusion Matrix")
-            st.image(cm_path, use_column_width=True)
+            st.image(cm_path, use_container_width=True)
 
     st.subheader("Feature Groups (138 total)")
     feat_groups = {
@@ -266,50 +237,27 @@ with tab1:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# TAB 2 — BOROUGH ANALYSIS
+# TAB 2 — BOROUGH ANALYSIS (pre-aggregated JSON — no parquet)
 # ════════════════════════════════════════════════════════════════════════════════
 with tab2:
     st.header("Borough Analysis")
+    st.caption("Based on full dataset of 1,110,445 NYC tax lots (FY2026)")
 
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        selected_boros = st.multiselect(
-            "Filter by Borough",
-            options=list(BORO_MAP.values()),
-            default=list(BORO_MAP.values()),
-        )
-    with col_f2:
-        selected_classes = st.multiselect(
-            "Filter by Classification",
-            options=["overvalued", "fairly_valued", "undervalued"],
-            default=["overvalued", "fairly_valued", "undervalued"],
-            format_func=lambda x: CLASS_LABELS[x],
-        )
-
-    df_filtered = df[
-        df["BORO_NAME"].isin(selected_boros) &
-        df["target_2026"].isin(selected_classes)
-    ]
-    st.caption(f"Showing {len(df_filtered):,} properties")
-
+    totals = bsummary["totals"]
     m1, m2, m3, m4 = st.columns(4)
-    vc = df_filtered["target_2026"].value_counts()
-    total = max(len(df_filtered), 1)
-    m1.metric("🔴 Overvalued",    f"{vc.get('overvalued',    0):,}", f"{vc.get('overvalued',    0)/total*100:.1f}%")
-    m2.metric("🟢 Fairly Valued", f"{vc.get('fairly_valued', 0):,}", f"{vc.get('fairly_valued', 0)/total*100:.1f}%")
-    m3.metric("🔵 Undervalued",   f"{vc.get('undervalued',   0):,}", f"{vc.get('undervalued',   0)/total*100:.1f}%")
-    m4.metric("📦 Total",         f"{len(df_filtered):,}")
+    m1.metric("🔴 Overvalued",    f"{totals['overvalued']:,}",    f"{totals['overvalued']/totals['total']*100:.1f}%")
+    m2.metric("🟢 Fairly Valued", f"{totals['fairly_valued']:,}", f"{totals['fairly_valued']/totals['total']*100:.1f}%")
+    m3.metric("🔵 Undervalued",   f"{totals['undervalued']:,}",   f"{totals['undervalued']/totals['total']*100:.1f}%")
+    m4.metric("📦 Total",         f"{totals['total']:,}")
 
     col_c1, col_c2 = st.columns(2)
 
     with col_c1:
         st.subheader("Classification by Borough")
-        boro_pivot = (
-            df_filtered.groupby(["BORO_NAME", "target_2026"]).size()
-            .reset_index(name="count")
-            .pivot(index="BORO_NAME", columns="target_2026", values="count")
-            .fillna(0)
-        )
+        boro_df    = pd.DataFrame(bsummary["boro_class"])
+        boro_df    = boro_df[boro_df["target_2026"] != "unknown"]
+        boro_pivot = boro_df.pivot(index="BORO_NAME", columns="target_2026", values="count").fillna(0)
+
         fig, ax = plt.subplots(figsize=(7, 4))
         boro_pivot.plot(kind="bar", ax=ax, stacked=True,
                         color=[CLASS_COLORS.get(c, "#999") for c in boro_pivot.columns])
@@ -324,14 +272,10 @@ with tab2:
 
     with col_c2:
         st.subheader("Top 15 Building Classes")
-        top_bldg = df_filtered["BLDG_CLASS"].value_counts().head(15).index.tolist()
-        bldg_pivot = (
-            df_filtered[df_filtered["BLDG_CLASS"].isin(top_bldg)]
-            .groupby(["BLDG_CLASS", "target_2026"]).size()
-            .reset_index(name="count")
-            .pivot(index="BLDG_CLASS", columns="target_2026", values="count")
-            .fillna(0)
-        )
+        bldg_df    = pd.DataFrame(bsummary["bldg_class"])
+        bldg_df    = bldg_df[bldg_df["target_2026"] != "unknown"]
+        bldg_pivot = bldg_df.pivot(index="BLDG_CLASS", columns="target_2026", values="count").fillna(0)
+
         fig2, ax2 = plt.subplots(figsize=(7, 4))
         bldg_pivot.plot(kind="bar", ax=ax2, stacked=True,
                         color=[CLASS_COLORS.get(c, "#999") for c in bldg_pivot.columns])
@@ -344,57 +288,43 @@ with tab2:
         st.pyplot(fig2)
         plt.close()
 
-    st.subheader("Assessed Value per Sqft by Borough")
-    df_plot = df_filtered.copy()
-    df_plot["assess_per_sqft"] = (
-        df_plot["FINACTTOT"] / df_plot["GROSS_SQFT"].clip(lower=1)
+    st.subheader("Assessed Value per Sqft Distribution by Borough")
+    selected_boros = st.multiselect(
+        "Select boroughs",
+        options=list(bsummary["hist_data"].keys()),
+        default=list(bsummary["hist_data"].keys()),
     )
-    df_plot = df_plot[df_plot["assess_per_sqft"].between(0, 500)]
-    if not df_plot.empty:
-        fig3, ax3 = plt.subplots(figsize=(10, 3))
-        for boro in selected_boros:
-            data = df_plot[df_plot["BORO_NAME"] == boro]["assess_per_sqft"].dropna()
-            if not data.empty:
-                ax3.hist(data, bins=60, alpha=0.5, label=boro, density=True)
-        ax3.set_xlabel("Assessed Value per Sqft ($)")
-        ax3.set_ylabel("Density")
-        ax3.set_title("Distribution of Assessed Value per Sqft")
-        ax3.legend(fontsize=8)
-        plt.tight_layout()
-        st.pyplot(fig3)
-        plt.close()
+    fig3, ax3 = plt.subplots(figsize=(10, 3))
+    for boro in selected_boros:
+        hdata   = bsummary["hist_data"][boro]
+        counts  = np.array(hdata["counts"])
+        edges   = np.array(hdata["edges"])
+        centers = (edges[:-1] + edges[1:]) / 2
+        total   = counts.sum()
+        ax3.plot(centers, counts / total, label=boro, linewidth=1.5)
+    ax3.set_xlabel("Assessed Value per Sqft ($)")
+    ax3.set_ylabel("Density")
+    ax3.set_title("Distribution of Assessed Value per Sqft")
+    ax3.set_xlim(0, 300)
+    ax3.legend(fontsize=8)
+    plt.tight_layout()
+    st.pyplot(fig3)
+    plt.close()
 
     st.subheader("Summary by Borough")
-    summary = (
-        df_filtered.groupby("BORO_NAME")
-        .agg(
-            Total=("BBL", "count"),
-            Overvalued=("target_2026", lambda x: (x == "overvalued").sum()),
-            Fairly_Valued=("target_2026", lambda x: (x == "fairly_valued").sum()),
-            Undervalued=("target_2026", lambda x: (x == "undervalued").sum()),
-        )
-        .reset_index()
-    )
-    summary["% Over"]  = (summary["Overvalued"]    / summary["Total"] * 100).round(1)
-    summary["% Fair"]  = (summary["Fairly_Valued"] / summary["Total"] * 100).round(1)
-    summary["% Under"] = (summary["Undervalued"]   / summary["Total"] * 100).round(1)
-    st.dataframe(summary, use_container_width=True)
+    summary_df = pd.DataFrame(bsummary["summary"]).rename(columns={
+        "BORO_NAME": "Borough", "Fairly_Valued": "Fairly Valued",
+        "pct_over": "% Over", "pct_fair": "% Fair", "pct_under": "% Under",
+    })
+    st.dataframe(summary_df, use_container_width=True)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-# ════════════════════════════════════════════════════════════════════════════════
-# TAB 3 — BBL LOOKUP (uses sample_properties.json — no full dataset needed)
+# TAB 3 — BBL LOOKUP (sample_properties.json — no parquet)
 # ════════════════════════════════════════════════════════════════════════════════
 with tab3:
     st.header("🔍 Property Lookup")
-    st.info("🔎 **Demo sample** — 100 real properties from the dataset (stratified across classes and boroughs). The full model was trained on 1.1M NYC tax lots.")
-
-    # Load sample JSON
-    import json
-    sample_path = os.path.join(BASE_DIR, "sample_properties.json")
-    with open(sample_path) as f:
-        sample_list = json.load(f)
-    sample_lookup = {str(p["BBL"]): p for p in sample_list}
+    st.info("🔎 **Demo sample** — 100 real properties from the dataset, stratified across all 3 classes and 5 boroughs. The full model was trained on 1.1M NYC tax lots.")
 
     col_input, col_example = st.columns([2, 1])
     with col_input:
@@ -402,7 +332,7 @@ with tab3:
     with col_example:
         st.markdown("**Example BBLs**")
         for p in sample_list[:5]:
-            b = str(p["BBL"])
+            b   = str(p["BBL"])
             lbl = CLASS_LABELS.get(p.get("target_2026", ""), b)
             if st.button(f"{b} ({lbl})", key=f"btn_{b}"):
                 bbl_input = b
@@ -415,21 +345,19 @@ with tab3:
         else:
             st.subheader(f"Property: BBL {bbl_input}")
 
-            # ── Property info ─────────────────────────────────────────────────
             r1 = st.columns(4)
-            r1[0].metric("Borough",        BORO_MAP.get(str(prop.get("BORO", "")), "Unknown"))
-            r1[1].metric("Building Class",  str(prop.get("BLDG_CLASS", "N/A")))
-            r1[2].metric("Gross Sqft",      f"{float(prop.get('GROSS_SQFT', 0) or 0):,.0f}")
-            r1[3].metric("Year Built",      str(prop.get("YRBUILT", "N/A")))
+            r1[0].metric("Borough",       BORO_MAP.get(str(prop.get("BORO", "")), "Unknown"))
+            r1[1].metric("Building Class", str(prop.get("BLDG_CLASS", "N/A")))
+            r1[2].metric("Gross Sqft",     f"{float(prop.get('GROSS_SQFT', 0) or 0):,.0f}")
+            r1[3].metric("Year Built",     str(prop.get("YRBUILT", "N/A")))
             r2 = st.columns(4)
-            r2[0].metric("ZIP Code",        str(prop.get("ZIP_CODE", "N/A")).strip())
-            r2[1].metric("Units",           str(prop.get("UNITS",    "N/A")))
-            r2[2].metric("# Buildings",     str(prop.get("NUM_BLDGS","N/A")))
-            r2[3].metric("Floors",          str(prop.get("BLD_STORY","N/A")))
+            r2[0].metric("ZIP Code",       str(prop.get("ZIP_CODE", "N/A")).strip())
+            r2[1].metric("Units",          str(prop.get("UNITS",    "N/A")))
+            r2[2].metric("# Buildings",    str(prop.get("NUM_BLDGS","N/A")))
+            r2[3].metric("Floors",         str(prop.get("BLD_STORY","N/A")))
 
             st.markdown("---")
 
-            # ── Classification + history chart ────────────────────────────────
             actual = str(prop.get("target_2026", "unknown"))
             color  = CLASS_COLORS.get(actual, "#999")
             label  = CLASS_LABELS.get(actual, actual)
@@ -458,7 +386,7 @@ with tab3:
                 st.subheader("Assessment History (FY2020–FY2026)")
                 hist_years = [2020, 2021, 2022, 2023, 2024, 2025, 2026]
                 hist_vals  = [
-                    prop.get(f"FINACTTOT_FY{y}", None) for y in [2020,2021,2022,2023,2024,2025]
+                    prop.get(f"FINACTTOT_FY{y}", None) for y in [2020, 2021, 2022, 2023, 2024, 2025]
                 ] + [prop.get("FINACTTOT", None)]
 
                 valid = [(y, float(v)) for y, v in zip(hist_years, hist_vals) if v not in (None, 0)]
@@ -476,7 +404,6 @@ with tab3:
                 else:
                     st.info("No historical assessment data available.")
 
-            # ── Peer group comparison ─────────────────────────────────────────
             st.markdown("---")
             st.subheader("Peer Group Comparison")
 
@@ -496,14 +423,13 @@ with tab3:
                 pc[2].metric("vs Peer Median",          f"{(this_psqft/peer_median - 1)*100:+.1f}%")
                 pc[3].metric("Peer Group Size",          f"{peer_size:,}")
 
-                # Synthetic peer distribution from pre-computed stats
-                rng = np.random.default_rng(42)
-                peer_std = (peer_p75 - peer_p25) / 1.35
-                synthetic_peers = rng.normal(loc=peer_median, scale=max(peer_std, 1), size=500)
-                synthetic_peers = synthetic_peers[(synthetic_peers > 0) & (synthetic_peers < peer_median * 4)]
+                rng       = np.random.default_rng(42)
+                peer_std  = max((peer_p75 - peer_p25) / 1.35, 1)
+                syn_peers = rng.normal(loc=peer_median, scale=peer_std, size=500)
+                syn_peers = syn_peers[(syn_peers > 0) & (syn_peers < peer_median * 4)]
 
                 fig5, ax5 = plt.subplots(figsize=(8, 3))
-                ax5.hist(synthetic_peers, bins=40, color="#aaaaaa", alpha=0.7, label="Peer group (modeled)")
+                ax5.hist(syn_peers, bins=40, color="#aaaaaa", alpha=0.7, label="Peer group (modeled)")
                 ax5.axvline(this_psqft,  color=color,    linewidth=3, label=f"This: ${this_psqft:,.0f}")
                 ax5.axvline(peer_median, color="#333333", linewidth=2, linestyle="--", label=f"Median: ${peer_median:,.0f}")
                 ax5.axvspan(peer_median * 0.85, peer_median * 1.15, alpha=0.1, color="green", label="±15% fair zone")
@@ -518,7 +444,6 @@ with tab3:
             else:
                 st.info("Not enough peer data to show comparison.")
 
-            # ── Historical classification ─────────────────────────────────────
             st.markdown("---")
             st.subheader("Historical Classification (FY2020–FY2025)")
             hist_cols = st.columns(6)
