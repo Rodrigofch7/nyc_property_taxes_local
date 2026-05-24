@@ -103,8 +103,8 @@ with st.sidebar:
     """)
     st.markdown("---")
     st.markdown("**Model Performance**")
-    st.metric("Test F1 Macro",       "87.9%")
-    st.metric("Test Accuracy",       "88.2%")
+    st.metric("Test F1 Macro",       "86.7%")
+    st.metric("Test Accuracy",       "87.6%")
     st.metric("Training Properties", "877k")
     st.markdown("---")
     st.caption("CAPP 30254 · Spring 2026 · UChicago  \nAhmed Lodhi · Faizan Imran · Rodrigo Chaves")
@@ -173,9 +173,9 @@ with tab1:
         perf_df = pd.DataFrame({
             "Model":          ["SGD L2", "SGD ElasticNet", "SGD L1", "LightGBM"],
             "Type":           ["Linear", "Linear", "Linear", "Non-linear"],
-            "Test F1 Macro":  [0.8149, 0.8147, 0.7520, 0.8790],
-            "Test Accuracy":  [0.8188, 0.8182, 0.7584, 0.8822],
-            "CV F1 Macro":    [0.8135, 0.8136, 0.7581, None],
+            "Test F1 Macro":  [0.8027, 0.8024, 0.7733, 0.8672],
+            "Test Accuracy":  [0.8149, 0.8143, 0.7909, 0.8761],
+            "CV F1 Macro":    [0.8010, 0.8006, 0.7456, None],
         })
         def highlight_best(s):
             is_max = s == s.max()
@@ -191,7 +191,7 @@ with tab1:
             }),
             use_container_width=True,
         )
-        st.caption("Baseline (majority class): 0.527  |  Linear models: PCA (60 components) + StandardScaler")
+        st.caption("Baseline (majority class): 0.570  |  Linear models: PCA (60 components) + StandardScaler")
 
         st.subheader("Top Features (LightGBM)")
         if feat_imp is not None:
