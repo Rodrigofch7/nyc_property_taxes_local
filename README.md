@@ -51,6 +51,7 @@
   3. Drop decade bin
   4. Drop market value bin
   5. Borough + Building Class
+- **Market value bin:** `FINMKTTOT_FY2025` split into **20 ventile buckets** across all 1.1M properties — a deliberate tradeoff between price comparability and peer group size. Effective price range within a peer group is much narrower because the other five dimensions filter the population first.
 - Labels: `overvalued` (>15% above peer median), `undervalued` (>15% below), `fairly_valued` (within ±15%).
 - Generates binary status flags for FY2020–2025 (historical features) and a `target_2026` column.
 - Outputs `processed_labeled_data.parquet`.
@@ -93,24 +94,24 @@ BBL match rate for sales features: ~31% (338k of 1.1M properties have a qualifyi
 
 ### Linear Models (`linear_ml_models.py`)
 Pipeline: `StandardScaler → PCA (60 components, ~99.2% variance) → SGDClassifier`  
-Subsampled to 100k rows for tuning; trained on full 877k train set.
+Subsampled to 100k rows for tuning; trained on full train set.
 
 | Model | Test Accuracy | Test F1 Macro | CV F1 Macro |
 |---|---|---|---|
-| SGD L2 | 0.8188 | 0.8149 | 0.8135 ± 0.0024 |
-| SGD ElasticNet | 0.8182 | 0.8147 | 0.8136 ± 0.0028 |
-| SGD L1 | 0.7584 | 0.7520 | 0.7581 ± 0.0279 |
+| SGD L2 | 0.8149 | 0.8027 | 0.8010 ± 0.0042 |
+| SGD ElasticNet | 0.8143 | 0.8024 | 0.8006 ± 0.0037 |
+| SGD L1 | 0.7909 | 0.7733 | 0.7456 ± 0.0321 |
 
 ### Non-Linear Model (`non_linear_ml_models.py`)
 LightGBM classifier; subsampled to 300k rows for tuning (20 iterations × 5-fold CV).
 
 | Model | Test Accuracy | Test F1 Macro |
 |---|---|---|
-| LightGBM | **0.8822** | **0.8790** |
+| LightGBM | **0.8761** | **0.8672** |
 
-**Top features (LightGBM):** `SQFT_PER_UNIT`, `AGE_X_ASSESS_PER_SQFT`, `ASSESS_VOLATILITY`, `ASSESS_VS_BLDG_CLASS_MEDIAN`, `ASSESS_VS_ZIP_MEDIAN`, `COVERAGE_RATIO`, `ZIP_CODE_CODE`.
+**Top features (LightGBM):** `SQFT_PER_UNIT`, `AGE_X_ASSESS_PER_SQFT`, `ASSESS_VS_BLDG_CLASS_MEDIAN`, `ASSESS_VOLATILITY`, `ASSESS_VS_ZIP_MEDIAN`, `COVERAGE_RATIO`, `ASSESS_ACCEL_FY2022`.
 
-**Baseline** (majority class): 0.527
+**Baseline** (majority class): 0.570
 
 ---
 
@@ -118,11 +119,11 @@ LightGBM classifier; subsampled to 300k rows for tuning (20 iterations × 5-fold
 
 | Class | Count | Share |
 |---|---|---|
-| fairly_valued | 578,400 | 52.7% |
-| overvalued | 269,377 | 24.6% |
-| undervalued | 249,157 | 22.7% |
+| fairly_valued | 625,030 | 56.3% |
+| overvalued | 245,256 | 22.1% |
+| undervalued | 227,273 | 20.5% |
 
-Total after dropping unknowns: **1,096,934** properties.
+Total: **1,110,445** properties (unknowns excluded from model training).
 
 ---
 
@@ -156,6 +157,7 @@ project-nyc_property_taxes/
 |---|---|---|
 | Valuation threshold | ±15% from peer median | `classifying_data.py` |
 | Min peer group size | 10 | `classifying_data.py` |
+| Market value bins | 20 ventiles | `classifying_data.py` |
 | PCA components | 60 | `linear_ml_models.py` |
 | Linear subsample | 100,000 rows | `linear_ml_models.py` |
 | LGBM subsample | 300,000 rows | `non_linear_ml_models.py` |
