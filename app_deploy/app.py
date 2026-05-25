@@ -325,34 +325,17 @@ with tab2:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
-<<<<<<< HEAD
 # TAB 3 — BBL LOOKUP (sample_properties.json — no parquet)
 # ════════════════════════════════════════════════════════════════════════════════
 with tab3:
     st.header("🔍 Property Lookup")
     st.info("🔎 **Demo sample** — 100 real properties from the dataset, stratified across all 3 classes and 5 boroughs. The full model was trained on 1.1M NYC tax lots.")
-=======
-# ════════════════════════════════════════════════════════════════════════════════
-# TAB 3 — BBL LOOKUP (uses sample_properties.json — no full dataset needed)
-# ════════════════════════════════════════════════════════════════════════════════
-with tab3:
-    st.header("🔍 Property Lookup")
-    st.info("🔎 **Demo sample** — 100 real properties from the dataset (stratified across classes and boroughs). The full model was trained on 1.1M NYC tax lots.")
-
-    # Load sample JSON
-    import json
-    sample_path = os.path.join(BASE_DIR, "sample_properties.json")
-    with open(sample_path) as f:
-        sample_list = json.load(f)
-    sample_lookup = {str(p["BBL"]): p for p in sample_list}
->>>>>>> 935eb00 (app)
 
     col_input, col_example = st.columns([2, 1])
     with col_input:
         bbl_input = st.text_input("Enter BBL", placeholder="e.g. 5036410049", max_chars=15)
     with col_example:
         st.markdown("**Example BBLs**")
-<<<<<<< HEAD
         shown, examples = set(), []
         for p in sample_list:
             cls = p.get("target_2026", "")
@@ -363,10 +346,6 @@ with tab3:
                 break
         for p in examples:
             b   = str(p["BBL"])
-=======
-        for p in sample_list[:5]:
-            b = str(p["BBL"])
->>>>>>> 935eb00 (app)
             lbl = CLASS_LABELS.get(p.get("target_2026", ""), b)
             if st.button(f"{b} ({lbl})", key=f"btn_{b}"):
                 bbl_input = b
@@ -420,11 +399,7 @@ with tab3:
                 st.subheader("Assessment History (FY2020–FY2026)")
                 hist_years = [2020, 2021, 2022, 2023, 2024, 2025, 2026]
                 hist_vals  = [
-<<<<<<< HEAD
                     prop.get(f"FINACTTOT_FY{y}", None) for y in [2020, 2021, 2022, 2023, 2024, 2025]
-=======
-                    prop.get(f"FINACTTOT_FY{y}", None) for y in [2020,2021,2022,2023,2024,2025]
->>>>>>> 935eb00 (app)
                 ] + [prop.get("FINACTTOT", None)]
 
                 valid = [(y, float(v)) for y, v in zip(hist_years, hist_vals) if v not in (None, 0)]
@@ -461,7 +436,6 @@ with tab3:
                 pc[2].metric("vs Peer Median",          f"{(this_psqft/peer_median - 1)*100:+.1f}%")
                 pc[3].metric("Peer Group Size",          f"{peer_size:,}")
 
-<<<<<<< HEAD
                 rng       = np.random.default_rng(42)
                 peer_std  = max((peer_p75 - peer_p25) / 1.35, 1)
                 syn_peers = rng.normal(loc=peer_median, scale=peer_std, size=500)
@@ -469,16 +443,6 @@ with tab3:
 
                 fig5, ax5 = plt.subplots(figsize=(8, 3))
                 ax5.hist(syn_peers, bins=40, color="#aaaaaa", alpha=0.7, label="Peer group (modeled)")
-=======
-                # Synthetic peer distribution from pre-computed stats
-                rng = np.random.default_rng(42)
-                peer_std = (peer_p75 - peer_p25) / 1.35
-                synthetic_peers = rng.normal(loc=peer_median, scale=max(peer_std, 1), size=500)
-                synthetic_peers = synthetic_peers[(synthetic_peers > 0) & (synthetic_peers < peer_median * 4)]
-
-                fig5, ax5 = plt.subplots(figsize=(8, 3))
-                ax5.hist(synthetic_peers, bins=40, color="#aaaaaa", alpha=0.7, label="Peer group (modeled)")
->>>>>>> 935eb00 (app)
                 ax5.axvline(this_psqft,  color=color,    linewidth=3, label=f"This: ${this_psqft:,.0f}")
                 ax5.axvline(peer_median, color="#333333", linewidth=2, linestyle="--", label=f"Median: ${peer_median:,.0f}")
                 ax5.axvspan(peer_median * 0.85, peer_median * 1.15, alpha=0.1, color="green", label="±15% fair zone")
