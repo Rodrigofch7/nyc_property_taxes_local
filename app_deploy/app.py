@@ -10,6 +10,8 @@ Three tabs:
 Deploy: streamlit run app.py
 """
 
+
+
 import os
 import sys
 import streamlit as st
@@ -22,7 +24,8 @@ import matplotlib.pyplot as plt
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))  # app_deploy/
-PROJECT_DIR = os.path.dirname(BASE_DIR)                   # repo root
+PROJECT_DIR = os.path.dirname(BASE_DIR)                      # project root
+sys.path.insert(0, os.path.join(PROJECT_DIR, "python_scripts"))
 
 DATA_PATH  = os.path.join(PROJECT_DIR, "data",    "processed_labeled_data.parquet")
 MODEL_DIR  = os.path.join(PROJECT_DIR, "models")
