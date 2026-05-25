@@ -357,15 +357,15 @@ with tab3:
             st.subheader(f"Property: BBL {bbl_input}")
 
             r1 = st.columns(4)
-            r1[0].metric("Borough",        BORO_MAP.get(str(prop.get("BORO", "")), "Unknown"))
-            r1[1].metric("Building Class",  str(prop.get("BLDG_CLASS", "N/A")))
-            r1[2].metric("Gross Sqft",      f"{float(prop.get('GROSS_SQFT', 0) or 0):,.0f}")
-            r1[3].metric("Year Built",      str(prop.get("YRBUILT", "N/A")))
+            r1[0].metric("Borough",       BORO_MAP.get(str(prop.get("BORO", "")), "Unknown"))
+            r1[1].metric("Building Class", str(prop.get("BLDG_CLASS", "N/A")))
+            r1[2].metric("Gross Sqft",     f"{float(prop.get('GROSS_SQFT', 0) or 0):,.0f}")
+            r1[3].metric("Year Built",     str(prop.get("YRBUILT", "N/A")))
             r2 = st.columns(4)
-            r2[0].metric("ZIP Code",        str(prop.get("ZIP_CODE", "N/A")).strip())
-            r2[1].metric("Units",           str(prop.get("UNITS",    "N/A")))
-            r2[2].metric("# Buildings",     str(prop.get("NUM_BLDGS","N/A")))
-            r2[3].metric("Floors",          str(prop.get("BLD_STORY","N/A")))
+            r2[0].metric("ZIP Code",       str(prop.get("ZIP_CODE", "N/A")).strip())
+            r2[1].metric("Units",          str(prop.get("UNITS",    "N/A")))
+            r2[2].metric("# Buildings",    str(prop.get("NUM_BLDGS","N/A")))
+            r2[3].metric("Floors",         str(prop.get("BLD_STORY","N/A")))
 
             st.markdown("---")
 
