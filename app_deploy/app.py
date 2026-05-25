@@ -238,6 +238,7 @@ with tab1:
             for f in feats:
                 st.markdown(f"  - `{f}`")
 
+
 # ════════════════════════════════════════════════════════════════════════════════
 # TAB 2 — BOROUGH ANALYSIS (pre-aggregated JSON — no parquet)
 # ════════════════════════════════════════════════════════════════════════════════
@@ -326,26 +327,28 @@ with tab2:
 # ════════════════════════════════════════════════════════════════════════════════
 with tab3:
     st.header("🔍 Property Lookup")
-    st.info("🔎 **Demo sample** — 100 real properties from the dataset, stratified across all 3 classes and 5 boroughs. The full model was trained on 1.1M NYC tax lots.")
+    st.markdown("Explore three real NYC properties — one clearly **overvalued**, one **fairly valued**, and one **undervalued** — based on the FY2026 peer-group classification.")
+
+    st.info(
+        "This demo shows **3 real NYC properties** — one from each class. "
+        "Click a button below to explore it, or type a BBL directly. "
+        "The full model was trained on 1.1M tax lots; only these 3 are available here."
+    )
 
     col_input, col_example = st.columns([2, 1])
     with col_input:
-        bbl_input = st.text_input("Enter BBL", placeholder="e.g. 5036410049", max_chars=15)
+        bbl_input = st.text_input("Enter BBL", placeholder="e.g. 4131240015", max_chars=15)
     with col_example:
-        st.markdown("**Example BBLs**")
-        shown, examples = set(), []
-        for p in sample_list:
-            cls = p.get("target_2026", "")
-            if cls not in shown and cls in CLASS_LABELS:
-                examples.append(p)
-                shown.add(cls)
-            if len(shown) == 3:
-                break
-        for p in examples:
-            b   = str(p["BBL"])
-            lbl = CLASS_LABELS.get(p.get("target_2026", ""), b)
-            if st.button(f"{b} ({lbl})", key=f"btn_{b}"):
-                bbl_input = b
+        st.markdown("**Select an example property:**")
+        EXAMPLE_BBLS = [
+            ("4131240015", "fairly_valued",  "Queens B2 — ratio 0.99"),
+            ("4048040043", "overvalued",     "Queens B3 — ratio 1.30"),
+            ("2046820045", "undervalued",    "Bronx A1 — ratio 0.81"),
+        ]
+        for bbl, cls, desc in EXAMPLE_BBLS:
+            lbl = CLASS_LABELS.get(cls, cls)
+            if st.button(f"{lbl}\n{bbl} · {desc}", key=f"btn_{bbl}"):
+                bbl_input = bbl
 
     if bbl_input:
         prop = sample_lookup.get(bbl_input.strip())
