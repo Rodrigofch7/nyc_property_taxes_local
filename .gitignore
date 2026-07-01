@@ -1,2 +1,6 @@
-data/
+data/assessment_wide.parquet
+data/processed_labeled_data.parquet
 models/lgbm_model.pkl
+__pycache__/
+*.pyc
+.venv/

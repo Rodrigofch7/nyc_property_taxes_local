@@ -17,9 +17,7 @@ import streamlit as st
 import joblib
 import pandas as pd
 import numpy as np
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
 
 # ── Path setup ────────────────────────────────────────────────────────────────
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))  # app_deploy/
@@ -48,6 +46,60 @@ CLASS_LABELS = {
     "fairly_valued": "🟢 Fairly Valued",
 }
 BORO_MAP = {"1": "Manhattan", "2": "Bronx", "3": "Brooklyn", "4": "Queens", "5": "Staten Island"}
+
+
+PLOTLY_CONFIG = {"displayModeBar": False, "responsive": True}
+
+
+def style_fig(fig, height=380, title=None):
+    """Apply consistent, lightweight styling to a Plotly figure."""
+    fig.update_layout(
+        title=title,
+        height=height,
+        margin=dict(l=10, r=10, t=40 if title else 10, b=10),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        font=dict(color="#333333", size=12),
+        legend=dict(bgcolor="rgba(0,0,0,0)"),
+        hoverlabel=dict(bgcolor="white"),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="#eeeeee", zeroline=False)
+    fig.update_yaxes(showgrid=True, gridcolor="#eeeeee", zeroline=False)
+    return fig
+
+
+def stacked_class_bar(pivot_df, title, tickangle=-30):
+    """Stacked bar of property counts by class over a pivoted index."""
+    fig = go.Figure()
+    for cls in ["undervalued", "fairly_valued", "overvalued"]:
+        if cls in pivot_df.columns:
+            fig.add_bar(
+                x=pivot_df.index, y=pivot_df[cls],
+                name=CLASS_LABELS.get(cls, cls),
+                marker_color=CLASS_COLORS.get(cls),
+                hovertemplate="%{x}<br>" + CLASS_LABELS.get(cls, cls) + ": %{y:,}<extra></extra>",
+            )
+    fig.update_layout(barmode="stack", xaxis_title="", yaxis_title="Properties", legend_title="Class")
+    fig.update_xaxes(tickangle=tickangle)
+    return style_fig(fig, title=title)
+
+
+# ── Custom styling ────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+div[data-testid="stMetric"] {
+    background: #f8f9fb;
+    border: 1px solid #e6e9ef;
+    border-radius: 10px;
+    padding: 14px 16px 10px 16px;
+}
+div[data-testid="stMetricValue"] { font-size: 1.55rem; }
+div[data-testid="stMetricLabel"] { font-weight: 600; color: #555; }
+button[data-baseweb="tab"] p { font-size: 1.02rem; font-weight: 600; }
+h2, h3 { letter-spacing: -0.01em; }
+section[data-testid="stSidebar"] { border-right: 1px solid #e6e9ef; }
+</style>
+""", unsafe_allow_html=True)
 
 
 # ── Cached loaders ────────────────────────────────────────────────────────────
@@ -89,8 +141,8 @@ with st.sidebar:
     if os.path.exists(icon_path):
         st.image(icon_path, width=80)
     st.title("NYC Property Tax")
-    st.markdown("**Assessment Classification Model**")
-    st.markdown("---")
+    st.caption("Assessment Classification Model")
+    st.divider()
     st.markdown("""
     **LightGBM** trained on NYC DOF assessment data (FY2020–FY2026)
     to classify ~1.1M properties as:
@@ -101,14 +153,32 @@ with st.sidebar:
 
     Peer groups: borough + building class (up to 6-level fallback hierarchy).
     """)
-    st.markdown("---")
-    st.markdown("**Model Performance**")
-    st.metric("Test F1 Macro",       "86.7%")
-    st.metric("Test Accuracy",       "87.6%")
-    st.metric("Training Properties", "877k")
-    st.markdown("---")
+    st.divider()
     st.caption("CAPP 30254 · Spring 2026 · UChicago  \nAhmed Lodhi · Faizan Imran · Rodrigo Chaves")
 
+
+# ── Hero ──────────────────────────────────────────────────────────────────────
+st.markdown(
+    """
+    <div style="background: linear-gradient(100deg, #0b3d91 0%, #1a5fb4 100%);
+                padding: 28px 32px; border-radius: 14px; margin-bottom: 16px;">
+        <h1 style="color:white; margin:0; font-size:2rem;">🏙️ NYC Property Tax Assessment Classifier</h1>
+        <p style="color:#dbe9ff; margin:8px 0 0 0; font-size:1.05rem; max-width:720px;">
+            A LightGBM model flags NYC properties as over-, under-, or fairly assessed
+            relative to their peers — trained on 1.1M tax lots and six years of DOF assessment history.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+hero1, hero2, hero3, hero4 = st.columns(4)
+hero1.metric("Test F1 Macro", "86.7%")
+hero2.metric("Test Accuracy", "87.6%")
+hero3.metric("Properties Trained On", "877k")
+hero4.metric("Properties Classified", f"{bsummary['totals']['total']:,}")
+
+st.write("")
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(["📋 Methodology", "🗺️ Borough Analysis", "🔍 BBL Lookup"])
@@ -119,6 +189,14 @@ tab1, tab2, tab3 = st.tabs(["📋 Methodology", "🗺️ Borough Analysis", "�
 # ════════════════════════════════════════════════════════════════════════════════
 with tab1:
     st.header("Methodology")
+
+    st.info(
+        "**Key result:** LightGBM reaches **86.7% Macro F1** — a **+6.5 point** gain "
+        "over the best linear baseline (SGD L2, 80.3%) and **+29.7 points** over the "
+        "majority-class baseline (57.0%), driven mainly by peer-relative assessment "
+        "ratios and multi-year assessment trend features."
+    )
+
     col1, col2 = st.columns([1, 1])
 
     with col1:
@@ -189,27 +267,28 @@ with tab1:
                 "Test Accuracy": "{:.4f}",
                 "CV F1 Macro":   lambda x: f"{x:.4f}" if pd.notna(x) else "—",
             }),
-            use_container_width=True,
+            width='stretch',
         )
         st.caption("Baseline (majority class): 0.570  |  Linear models: PCA (60 components) + StandardScaler")
 
         st.subheader("Top Features (LightGBM)")
         if feat_imp is not None:
-            fig, ax = plt.subplots(figsize=(8, 6))
-            top20 = feat_imp.head(20)
-            ax.barh(top20["Feature"][::-1], top20["Importance"][::-1], color="#4575b4")
-            ax.set_xlabel("Importance")
-            ax.set_title("Top 20 Feature Importances")
-            plt.tight_layout()
-            st.pyplot(fig)
-            plt.close()
+            top20 = feat_imp.head(20).iloc[::-1]
+            fig = go.Figure(go.Bar(
+                x=top20["Importance"], y=top20["Feature"], orientation="h",
+                marker_color="#4575b4",
+                hovertemplate="%{y}<br>Importance: %{x:.1f}<extra></extra>",
+            ))
+            fig.update_layout(xaxis_title="Importance", yaxis_title="")
+            style_fig(fig, height=520, title="Top 20 Feature Importances")
+            st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
         else:
             st.info("Feature importance CSV not found in outputs/.")
 
         cm_path = os.path.join(OUTPUT_DIR, "lgbm_confusion_matrix.png")
         if os.path.exists(cm_path):
             st.subheader("Confusion Matrix")
-            st.image(cm_path, use_container_width=True)
+            st.image(cm_path, width='stretch')
 
     st.subheader("Feature Groups (138 total)")
     feat_groups = {
@@ -261,17 +340,8 @@ with tab2:
         boro_df    = boro_df[boro_df["target_2026"] != "unknown"]
         boro_pivot = boro_df.pivot(index="BORO_NAME", columns="target_2026", values="count").fillna(0)
 
-        fig, ax = plt.subplots(figsize=(7, 4))
-        boro_pivot.plot(kind="bar", ax=ax, stacked=True,
-                        color=[CLASS_COLORS.get(c, "#999") for c in boro_pivot.columns])
-        ax.set_xlabel("")
-        ax.set_ylabel("Properties")
-        ax.set_title("Classification by Borough")
-        ax.legend(title="Class", bbox_to_anchor=(1.05, 1), fontsize=8)
-        plt.xticks(rotation=30, ha="right")
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close()
+        fig = stacked_class_bar(boro_pivot, "Classification by Borough", tickangle=-30)
+        st.plotly_chart(fig, width='stretch', config=PLOTLY_CONFIG)
 
     with col_c2:
         st.subheader("Top 15 Building Classes")
@@ -279,17 +349,8 @@ with tab2:
         bldg_df    = bldg_df[bldg_df["target_2026"] != "unknown"]
         bldg_pivot = bldg_df.pivot(index="BLDG_CLASS", columns="target_2026", values="count").fillna(0)
 
-        fig2, ax2 = plt.subplots(figsize=(7, 4))
-        bldg_pivot.plot(kind="bar", ax=ax2, stacked=True,
-                        color=[CLASS_COLORS.get(c, "#999") for c in bldg_pivot.columns])
-        ax2.set_xlabel("")
-        ax2.set_ylabel("Properties")
-        ax2.set_title("Top 15 Building Classes")
-        ax2.legend(title="Class", bbox_to_anchor=(1.05, 1), fontsize=8)
-        plt.xticks(rotation=45, ha="right")
-        plt.tight_layout()
-        st.pyplot(fig2)
-        plt.close()
+        fig2 = stacked_class_bar(bldg_pivot, "Top 15 Building Classes", tickangle=-45)
+        st.plotly_chart(fig2, width='stretch', config=PLOTLY_CONFIG)
 
     st.subheader("Assessed Value per Sqft Distribution by Borough")
     selected_boros = st.multiselect(
@@ -297,29 +358,26 @@ with tab2:
         options=list(bsummary["hist_data"].keys()),
         default=list(bsummary["hist_data"].keys()),
     )
-    fig3, ax3 = plt.subplots(figsize=(10, 3))
+    fig3 = go.Figure()
     for boro in selected_boros:
         hdata   = bsummary["hist_data"][boro]
         counts  = np.array(hdata["counts"])
         edges   = np.array(hdata["edges"])
         centers = (edges[:-1] + edges[1:]) / 2
         total   = counts.sum()
-        ax3.plot(centers, counts / total, label=boro, linewidth=1.5)
-    ax3.set_xlabel("Assessed Value per Sqft ($)")
-    ax3.set_ylabel("Density")
-    ax3.set_title("Distribution of Assessed Value per Sqft")
-    ax3.set_xlim(0, 300)
-    ax3.legend(fontsize=8)
-    plt.tight_layout()
-    st.pyplot(fig3)
-    plt.close()
+        fig3.add_scatter(x=centers, y=counts / total, mode="lines", name=boro,
+                          line=dict(width=2), hovertemplate="$%{x:.0f}<br>Density: %{y:.4f}<extra>%{fullData.name}</extra>")
+    fig3.update_layout(xaxis_title="Assessed Value per Sqft ($)", yaxis_title="Density")
+    fig3.update_xaxes(range=[0, 300])
+    style_fig(fig3, height=340, title="Distribution of Assessed Value per Sqft")
+    st.plotly_chart(fig3, width='stretch', config=PLOTLY_CONFIG)
 
     st.subheader("Summary by Borough")
     summary_df = pd.DataFrame(bsummary["summary"]).rename(columns={
         "BORO_NAME": "Borough", "Fairly_Valued": "Fairly Valued",
         "pct_over": "% Over", "pct_fair": "% Fair", "pct_under": "% Under",
     })
-    st.dataframe(summary_df, use_container_width=True)
+    st.dataframe(summary_df, width='stretch')
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -327,28 +385,57 @@ with tab2:
 # ════════════════════════════════════════════════════════════════════════════════
 with tab3:
     st.header("🔍 Property Lookup")
-    st.markdown("Explore three real NYC properties — one clearly **overvalued**, one **fairly valued**, and one **undervalued** — based on the FY2026 peer-group classification.")
-
     st.info(
-        "This demo shows **3 real NYC properties** — one from each class. "
-        "Click a button below to explore it, or type a BBL directly. "
-        "The full model was trained on 1.1M tax lots; only these 3 are available here."
+        "🔎 **Demo sample** — 100 real properties, stratified across all 3 classes and "
+        "5 boroughs. Browse or search the full list below, or enter a BBL directly. "
+        "The full model was trained on 1.1M NYC tax lots."
     )
 
-    col_input, col_example = st.columns([2, 1])
+    if "bbl_text" not in st.session_state:
+        st.session_state.bbl_text = ""
+
+    def _set_bbl(value):
+        st.session_state.bbl_text = value
+
+    def _sample_label(p):
+        boro = BORO_MAP.get(str(p.get("BORO", "")), "")
+        cls  = CLASS_LABELS.get(p.get("target_2026", ""), "")
+        return f"{p['BBL']} — {boro}, {p.get('BLDG_CLASS', '')} ({cls})"
+
+    sample_options = {_sample_label(p): str(p["BBL"]) for p in sample_list}
+
+    def _apply_pick():
+        label = st.session_state.get("bbl_dropdown", "")
+        if label:
+            st.session_state.bbl_text = sample_options[label]
+
+    col_input, col_pick = st.columns([1, 2])
     with col_input:
-        bbl_input = st.text_input("Enter BBL", placeholder="e.g. 4131240015", max_chars=15)
-    with col_example:
-        st.markdown("**Select an example property:**")
-        EXAMPLE_BBLS = [
-            ("4131240015", "fairly_valued",  "Queens B2 — ratio 0.99"),
-            ("4048040043", "overvalued",     "Queens B3 — ratio 1.30"),
-            ("2046820045", "undervalued",    "Bronx A1 — ratio 0.81"),
-        ]
-        for bbl, cls, desc in EXAMPLE_BBLS:
-            lbl = CLASS_LABELS.get(cls, cls)
-            if st.button(f"{lbl}\n{bbl} · {desc}", key=f"btn_{bbl}"):
-                bbl_input = bbl
+        st.text_input("Enter a BBL directly", key="bbl_text", placeholder="e.g. 5036410049", max_chars=15)
+    with col_pick:
+        st.selectbox(
+            "…or search/browse all 100 sample properties",
+            options=[""] + sorted(sample_options.keys()),
+            key="bbl_dropdown",
+            on_change=_apply_pick,
+        )
+
+    shown, quick = set(), []
+    for p in sample_list:
+        cls = p.get("target_2026", "")
+        if cls not in shown and cls in CLASS_LABELS:
+            quick.append(p)
+            shown.add(cls)
+        if len(shown) == 3:
+            break
+    st.caption("Quick picks — one per class:")
+    qcols = st.columns(3)
+    for i, p in enumerate(quick):
+        b   = str(p["BBL"])
+        lbl = CLASS_LABELS.get(p.get("target_2026", ""), b)
+        qcols[i].button(f"{b} ({lbl})", key=f"btn_{b}", on_click=_set_bbl, args=(b,))
+
+    bbl_input = st.session_state.bbl_text
 
     if bbl_input:
         prop = sample_lookup.get(bbl_input.strip())
@@ -369,7 +456,7 @@ with tab3:
             r2[2].metric("# Buildings",    str(prop.get("NUM_BLDGS","N/A")))
             r2[3].metric("Floors",         str(prop.get("BLD_STORY","N/A")))
 
-            st.markdown("---")
+            st.divider()
 
             actual = str(prop.get("target_2026", "unknown"))
             color  = CLASS_COLORS.get(actual, "#999")
@@ -405,19 +492,21 @@ with tab3:
                 valid = [(y, float(v)) for y, v in zip(hist_years, hist_vals) if v not in (None, 0)]
                 if valid:
                     ys, vs = zip(*valid)
-                    fig4, ax4 = plt.subplots(figsize=(6, 3))
-                    ax4.plot(ys, vs, marker="o", color="#4575b4", linewidth=2)
-                    ax4.fill_between(ys, vs, alpha=0.1, color="#4575b4")
-                    ax4.set_xlabel("Fiscal Year")
-                    ax4.set_ylabel("Assessed Value ($)")
-                    ax4.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
-                    plt.tight_layout()
-                    st.pyplot(fig4)
-                    plt.close()
+                    fig4 = go.Figure(go.Scatter(
+                        x=ys, y=vs, mode="lines+markers",
+                        line=dict(color="#4575b4", width=2), marker=dict(size=7),
+                        fill="tozeroy", fillcolor="rgba(69,117,180,0.12)",
+                        hovertemplate="FY%{x}: $%{y:,.0f}<extra></extra>",
+                    ))
+                    fig4.update_layout(xaxis_title="Fiscal Year", yaxis_title="Assessed Value ($)")
+                    fig4.update_xaxes(dtick=1)
+                    fig4.update_yaxes(tickprefix="$", separatethousands=True)
+                    style_fig(fig4, height=300)
+                    st.plotly_chart(fig4, width='stretch', config=PLOTLY_CONFIG)
                 else:
                     st.info("No historical assessment data available.")
 
-            st.markdown("---")
+            st.divider()
             st.subheader("Peer Group Comparison")
 
             gross_sqft  = float(prop.get("GROSS_SQFT", 0) or 0)
@@ -441,23 +530,29 @@ with tab3:
                 syn_peers = rng.normal(loc=peer_median, scale=peer_std, size=500)
                 syn_peers = syn_peers[(syn_peers > 0) & (syn_peers < peer_median * 4)]
 
-                fig5, ax5 = plt.subplots(figsize=(8, 3))
-                ax5.hist(syn_peers, bins=40, color="#aaaaaa", alpha=0.7, label="Peer group (modeled)")
-                ax5.axvline(this_psqft,  color=color,    linewidth=3, label=f"This: ${this_psqft:,.0f}")
-                ax5.axvline(peer_median, color="#333333", linewidth=2, linestyle="--", label=f"Median: ${peer_median:,.0f}")
-                ax5.axvspan(peer_median * 0.85, peer_median * 1.15, alpha=0.1, color="green", label="±15% fair zone")
-                ax5.set_xlabel("Assessed Value per Sqft ($)")
-                ax5.set_ylabel("Count")
-                ax5.set_title(f"Peer Group — {BORO_MAP.get(str(prop.get('BORO','')), '')} / {prop.get('BLDG_CLASS','')}")
-                ax5.legend(fontsize=8)
-                plt.tight_layout()
-                st.pyplot(fig5)
-                plt.close()
+                fig5 = go.Figure()
+                fig5.add_histogram(x=syn_peers, nbinsx=40, marker_color="#aaaaaa", opacity=0.7,
+                                    name="Peer group (modeled)",
+                                    hovertemplate="$%{x:.0f}<br>Count: %{y}<extra></extra>")
+                fig5.add_vrect(x0=peer_median * 0.85, x1=peer_median * 1.15,
+                                fillcolor="green", opacity=0.1, line_width=0,
+                                annotation_text="±15% fair zone", annotation_position="top left",
+                                annotation_font_size=10)
+                fig5.add_vline(x=peer_median, line_color="#333333", line_width=2, line_dash="dash",
+                                annotation_text=f"Median: ${peer_median:,.0f}", annotation_position="top")
+                fig5.add_vline(x=this_psqft, line_color=color, line_width=3,
+                                annotation_text=f"This: ${this_psqft:,.0f}", annotation_position="bottom")
+                fig5.update_layout(
+                    xaxis_title="Assessed Value per Sqft ($)", yaxis_title="Count", showlegend=False,
+                )
+                style_fig(fig5, height=340,
+                          title=f"Peer Group — {BORO_MAP.get(str(prop.get('BORO','')), '')} / {prop.get('BLDG_CLASS','')}")
+                st.plotly_chart(fig5, width='stretch', config=PLOTLY_CONFIG)
                 st.caption(f"25th–75th percentile: ${peer_p25:,.0f}–${peer_p75:,.0f}/sqft  |  {peer_size:,} properties in peer group")
             else:
                 st.info("Not enough peer data to show comparison.")
 
-            st.markdown("---")
+            st.divider()
             st.subheader("Historical Classification (FY2020–FY2025)")
             hist_cols = st.columns(6)
             for i, yr in enumerate([2020, 2021, 2022, 2023, 2024, 2025]):

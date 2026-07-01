@@ -54,13 +54,13 @@ if "RESIDENTIAL_AREA_GROSS" in df.columns:
     ).astype(str)
     print(f"  RESAREA_BIN distribution:\n{df['RESAREA_BIN'].value_counts()}")
 
-# Market value FY2025 → quintile buckets (5 value tiers)
+# Market value FY2025 → 20 ventile buckets (finer price tiers)
 if "FINMKTTOT_FY2025" in df.columns:
     mktval_median = df["FINMKTTOT_FY2025"].median()
     mktval_filled = df["FINMKTTOT_FY2025"].fillna(mktval_median)
-    mktval_bins   = pd.qcut(mktval_filled, q=5, duplicates="drop", retbins=True)[1]
+    mktval_bins   = pd.qcut(mktval_filled, q=20, duplicates="drop", retbins=True)[1]
     n_mktval_bins = len(mktval_bins) - 1
-    mktval_labels = ["v_low", "low", "mid", "high", "v_high"][:n_mktval_bins]
+    mktval_labels = [f"q{i+1}" for i in range(n_mktval_bins)]
     df["MKTVAL_BIN"] = pd.cut(
         mktval_filled, bins=mktval_bins, labels=mktval_labels, include_lowest=True
     ).astype(str)
